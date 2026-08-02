@@ -1,0 +1,16 @@
+{
+  "name": "telegram-referral-platform",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w packages/database && npm run build -w packages/shared && npm run build -w apps/bot && npm run build -w apps/web",
+    "prisma:generate": "npm run generate -w packages/database",
+    "prisma:push": "npm run db:push -w packages/database"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}

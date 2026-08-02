@@ -1,0 +1,30 @@
+FROM node:20-slim AS base
+WORKDIR /repo
+RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+
+FROM base AS deps
+COPY package.json ./
+COPY packages/database/package.json packages/database/package.json
+COPY packages/shared/package.json packages/shared/package.json
+COPY apps/web/package.json apps/web/package.json
+RUN npm install
+
+FROM deps AS build
+COPY packages/database packages/database
+COPY packages/shared packages/shared
+COPY apps/web apps/web
+RUN npm run build -w packages/shared
+RUN npm run build -w packages/database
+RUN npm run build -w apps/web
+
+FROM base AS runtime
+ENV NODE_ENV=production
+COPY --from=build /repo/node_modules ./node_modules
+COPY --from=build /repo/package.json ./package.json
+COPY --from=build /repo/packages/database ./packages/database
+COPY --from=build /repo/packages/shared ./packages/shared
+COPY --from=build /repo/apps/web ./apps/web
+
+WORKDIR /repo/apps/web
+EXPOSE 3000
+CMD ["npx", "next", "start", "-p", "3000"]

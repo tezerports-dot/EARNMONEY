@@ -1,0 +1,20 @@
+{
+  "name": "@platform/database",
+  "version": "1.0.0",
+  "main": "dist/client.js",
+  "types": "dist/client.d.ts",
+  "scripts": {
+    "generate": "prisma generate",
+    "db:push": "prisma db push",
+    "migrate:dev": "prisma migrate dev",
+    "build": "prisma generate && tsc -p tsconfig.json",
+    "studio": "prisma studio"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.19.1"
+  },
+  "devDependencies": {
+    "prisma": "^5.19.1",
+    "typescript": "^5.5.4"
+  }
+}
