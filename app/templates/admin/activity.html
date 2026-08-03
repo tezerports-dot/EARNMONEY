@@ -1,0 +1,44 @@
+{% extends "admin/base.html" %}
+{% block title %}Activity — admin{% endblock %}
+
+{% block admin_body %}
+<h1>Activity log</h1>
+<p class="sub">Only signals Telegram actually delivers. There is no "opened the group" or "read the channel" event in the Bot API, so none is recorded here.</p>
+
+<form class="search" method="get" action="/admin/activity">
+  <input type="text" name="uid" value="{{ uid }}" placeholder="UID-A1B2C3 (optional)">
+  <select name="month">{% for m in months %}<option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ m }}</option>{% endfor %}</select>
+  <select name="kind">
+    <option value="">all types</option>
+    {% for k in kinds %}<option value="{{ k }}" {% if k == kind %}selected{% endif %}>{{ k }}</option>{% endfor %}
+  </select>
+  <button type="submit">Filter</button>
+</form>
+
+<div class="card table-scroll">
+  <table>
+    <thead><tr><th>When</th><th>User</th><th>Type</th><th>Month</th><th>Payload</th></tr></thead>
+    <tbody>
+    {% for row in rows %}
+      <tr>
+        <td class="small muted">{{ row.ts | ist }}</td>
+        <td>{% if row.uid %}<a href="/admin/users/{{ row.uid }}"><code>{{ row.uid }}</code></a>{% else %}<span class="mono small">{{ row.user_id }}</span>{% endif %}</td>
+        <td><span class="pill">{{ row.activity_type }}</span></td>
+        <td class="small">{{ row.month }}</td>
+        <td class="small">{{ row.payload }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="muted">No activity matches.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card small muted">
+  <b>command</b> — any slash command · <b>callback</b> — a tap on one of the bot's buttons ·
+  <b>group_message</b> — a message in a managed group (recorded once per user per day) ·
+  <b>poll_answer</b> — a vote in a poll the bot itself created ·
+  <b>dm</b> — a direct message to a bot.
+  One row anywhere in the month is all that is needed; extra rows never pay extra.
+</div>
+{% endblock %}

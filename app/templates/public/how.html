@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}How it works — {{ site_name }}{% endblock %}
+
+{% block body %}
+<h1>How it works</h1>
+
+<div class="card">
+  <h3>Joining</h3>
+  <p>Open the main bot through someone's referral link and tap the single button. That one tap shares your contact, verifies you, places you in exactly one group and one channel, and gives you your public ID and your own referral link.</p>
+  <p class="small muted">Your phone number is stored only as a SHA-256 hash. It is never displayed, exported or shared — it exists so one person cannot hold two accounts.</p>
+</div>
+
+<div class="card">
+  <h3>Earning ₹{{ rate }} per active member</h3>
+  <p>A person you referred counts for a month when <b>all three</b> are true:</p>
+  <ul>
+    <li>they are still a member of the channel,</li>
+    <li>they are still a member of the group,</li>
+    <li>they interacted with a bot at least once during that month — a button tap, a command, a message in the group, or a vote in a poll the bot posted.</li>
+  </ul>
+  <p>Membership on its own never counts. Extra taps never pay extra: one interaction in the month is the whole requirement, and a thousand taps still pay ₹{{ rate }} once. If someone leaves either chat they stop counting immediately.</p>
+  <p>To be paid at all you must meet the same bar yourself: in both chats, and at least one interaction that month.</p>
+</div>
+
+<div class="card">
+  <h3>Getting paid</h3>
+  <p>Months run from the 1st at 00:00 IST to the last day at 23:59 IST. Send <code>/bank</code> to the main bot once to record your name, account number, IFSC and UPI id, then <code>/withdraw</code> to request that month's payout. An admin reviews requests and transfers by bank after the month closes.</p>
+</div>
+
+<div class="card">
+  <h3>What the bots cannot see</h3>
+  <p>Telegram gives bots no way to know that someone opened a group or read a channel post — no such event exists in the Bot API. Nothing here claims to measure that. Activity is built only from events Telegram actually delivers: button taps, commands, group messages, poll votes on bot-created polls, and membership changes.</p>
+</div>
+{% endblock %}

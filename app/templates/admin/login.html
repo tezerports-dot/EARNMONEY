@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Admin login{% endblock %}
+{% block nav %}<a href="/">Public site</a>{% endblock %}
+
+{% block body %}
+<div style="max-width:400px;margin:60px auto;">
+  <h1>Admin</h1>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form method="post" action="/admin/login" class="card">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label for="token">Admin token</label>
+    <input type="password" id="token" name="token" autofocus autocomplete="current-password">
+    <p></p>
+    <button type="submit">Log in</button>
+  </form>
+  <p class="small muted">The token is the <code>ADMIN_TOKEN</code> value from the service environment.</p>
+</div>
+{% endblock %}

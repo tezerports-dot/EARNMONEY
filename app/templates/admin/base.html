@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block nav %}
+<a href="/admin" {% if page == 'dashboard' %}class="active"{% endif %}>Dashboard</a>
+<a href="/admin/bots" {% if page == 'bots' %}class="active"{% endif %}>Bots</a>
+<a href="/admin/chats" {% if page == 'chats' %}class="active"{% endif %}>Chats &amp; pairs</a>
+<a href="/admin/users" {% if page == 'users' %}class="active"{% endif %}>Users</a>
+<a href="/admin/activity" {% if page == 'activity' %}class="active"{% endif %}>Activity</a>
+<a href="/admin/bank" {% if page == 'bank' %}class="active"{% endif %}>Bank</a>
+<a href="/admin/withdrawals" {% if page == 'withdrawals' %}class="active"{% endif %}>Withdrawals</a>
+<a href="/admin/export" {% if page == 'export' %}class="active"{% endif %}>Export</a>
+<a href="/admin/settings" {% if page == 'settings' %}class="active"{% endif %}>Settings</a>
+<a href="/admin/logout">Log out</a>
+{% endblock %}
+
+{% block body %}
+{% if flash %}<div class="flash">{{ flash }}</div>{% endif %}
+{% block admin_body %}{% endblock %}
+{% endblock %}

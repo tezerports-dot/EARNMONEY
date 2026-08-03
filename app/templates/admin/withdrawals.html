@@ -1,0 +1,69 @@
+{% extends "admin/base.html" %}
+{% block title %}Withdrawals — admin{% endblock %}
+
+{% block admin_body %}
+<h1>Withdrawals</h1>
+<p class="sub">
+  {{ month }} — {{ totals.earning_referrers }} referrer(s) with active referrals,
+  {{ totals.active_referred }} active referred user(s), ₹{{ '%g' % totals.total_inr }} payable in total.
+</p>
+
+<form class="search" method="get" action="/admin/withdrawals">
+  <select name="month">{% for m in months %}<option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ m }}</option>{% endfor %}</select>
+  <select name="status">
+    {% for s in ['all', 'pending', 'approved', 'paid', 'rejected'] %}
+      <option value="{{ s }}" {% if s == status %}selected{% endif %}>{{ s }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit">Filter</button>
+</form>
+
+<div class="card table-scroll">
+  <table>
+    <thead>
+      <tr><th>ID</th><th>Name on account</th><th>Account</th><th>IFSC</th><th>UPI</th>
+          <th class="num">Amount</th><th>Status</th><th>Requested</th><th>Action</th></tr>
+    </thead>
+    <tbody>
+    {% for row in rows %}
+      <tr>
+        <td><a href="/admin/users/{{ row.uid }}"><code>{{ row.uid }}</code></a></td>
+        <td>{{ row.full_name or '—' }}</td>
+        <td class="mono small">{{ row.account_number or '—' }}</td>
+        <td class="mono small">{{ row.ifsc or '—' }}</td>
+        <td class="mono small">{{ row.upi_id or '—' }}</td>
+        <td class="num">₹{{ '%g' % row.amount }}</td>
+        <td>
+          {% if row.status == 'paid' %}<span class="pill ok">paid</span>
+          {% elif row.status == 'approved' %}<span class="pill info">approved</span>
+          {% elif row.status == 'rejected' %}<span class="pill bad">rejected</span>
+          {% else %}<span class="pill warn">pending</span>{% endif %}
+        </td>
+        <td class="small muted">{{ row.created_at | ist }}</td>
+        <td>
+          {% if row.status == 'pending' %}
+            <form class="inline" method="post" action="/admin/withdrawals/{{ row.id }}/approve">
+              <input type="hidden" name="month" value="{{ month }}"><button class="small" type="submit">Approve</button>
+            </form>
+            <form class="inline" method="post" action="/admin/withdrawals/{{ row.id }}/reject">
+              <input type="hidden" name="month" value="{{ month }}"><button class="danger small" type="submit">Reject</button>
+            </form>
+          {% elif row.status == 'approved' %}
+            <form class="inline" method="post" action="/admin/withdrawals/{{ row.id }}/paid"
+                  onsubmit="return confirm('Mark as paid? The user is notified that the transfer is done.');">
+              <input type="hidden" name="month" value="{{ month }}"><button class="small" type="submit">Mark paid</button>
+            </form>
+          {% else %}
+            <span class="muted small">{{ row.processed_at | ist }}</span>
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="9" class="muted">No requests for this filter.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<p class="small muted">Approve first, transfer through your bank using the <a href="/admin/export?month={{ month }}">export file</a>, then mark paid.</p>
+{% endblock %}

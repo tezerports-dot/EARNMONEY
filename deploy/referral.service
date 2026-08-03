@@ -1,0 +1,41 @@
+[Unit]
+Description=Referral platform (FastAPI web panel + Telegram bot pollers)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=referral
+Group=referral
+WorkingDirectory=/opt/referral
+EnvironmentFile=/opt/referral/.env
+ExecStart=/opt/referral/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+
+# One worker only. The bots are asyncio tasks inside this process; a second
+# worker would start a second poller per token and Telegram rejects that with
+# a 409 Conflict.
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=30
+
+# Hardening. The service only ever writes to its own data directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/referral/data
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+# Keep the footprint honest on a shared Ampere instance.
+MemoryMax=768M
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=referral
+
+[Install]
+WantedBy=multi-user.target
