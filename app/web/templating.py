@@ -7,14 +7,16 @@ from pathlib import Path
 from fastapi.templating import Jinja2Templates
 
 from app.config import settings
-from app.earnings import RATE
+from app.earnings import rates
 from app.timeutil import current_month, human_ist
 
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "templates"
 
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 templates.env.globals.update(
-    rate=RATE,
+    # A callable, not a value: the rates are editable in the admin panel and
+    # must not be frozen at import time.
+    rates=rates,
     site_name="Referral Platform",
     public_base_url=settings.public_base_url,
     current_month=current_month,

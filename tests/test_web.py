@@ -66,7 +66,8 @@ def test_public_user_page_shows_the_breakdown(client, world):
     response = client.get(f"/u/{referrer['uid']}")
     assert response.status_code == 200
     assert referred["uid"] in response.text
-    assert "₹10" in response.text
+    assert "₹5" in response.text  # one active level-1 referral at the default rate
+    assert "Level 1" in response.text and "Level 2" in response.text
 
 
 def test_public_page_never_exposes_bank_details_or_phone(client, world):
@@ -142,6 +143,46 @@ def test_admin_can_edit_settings(admin):
     admin.post("/admin/settings", data={"banned_words": "spam,scam", "flood_limit": "9"})
     assert db.get_setting("banned_words") == "spam,scam"
     assert db.get_setting_int("flood_limit", 0) == 9
+
+
+def test_admin_can_edit_both_payout_rates(admin):
+    from app import earnings
+
+    admin.post("/admin/settings", data={"payout_level1": "8", "payout_level2": "2.5"})
+    current = earnings.rates()
+    assert current.level1 == 8.0
+    assert current.level2 == 2.5
+
+
+def test_a_non_numeric_payout_rate_is_rejected_not_coerced(admin):
+    """Silently storing 0 would zero out everyone's earnings."""
+    from app import earnings
+
+    admin.post("/admin/settings", data={"payout_level1": "8"})
+    response = admin.post(
+        "/admin/settings", data={"payout_level1": "free money"}, follow_redirects=True
+    )
+    assert earnings.rates().level1 == 8.0
+    assert "Ignored payout_level1" in response.text
+
+
+def test_a_negative_payout_rate_is_rejected(admin):
+    from app import earnings
+
+    admin.post("/admin/settings", data={"payout_level2": "-5"})
+    assert earnings.rates().level2 == 5.0
+
+
+def test_flash_messages_survive_non_latin1_characters(admin):
+    """Cookies are latin-1 only; these messages carry ₹ and em dashes."""
+    from app.web.admin import _redirect
+
+    response = _redirect("/admin", "Paid ₹20 — done.")
+    assert response.status_code == 303
+
+    admin.cookies.set("admin_flash", response.headers["set-cookie"].split("=")[1].split(";")[0])
+    page = admin.get("/admin")
+    assert "Paid ₹20 — done." in page.text
 
 
 def test_logout_clears_the_session(admin):

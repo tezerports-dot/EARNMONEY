@@ -30,8 +30,14 @@
 </div>
 
 <div class="grid cols-4" style="margin-top:16px;">
-  <div class="stat"><div class="n">{{ report.total_referrals }}</div><div class="k">referrals</div></div>
-  <div class="stat"><div class="n">{{ report.active_referrals }}</div><div class="k">active in {{ month }}</div></div>
+  <div class="stat">
+    <div class="n">{{ report.active_referrals }}<span class="muted" style="font-size:16px;">/{{ report.total_referrals }}</span></div>
+    <div class="k">🥇 level 1 active · ₹{{ '%g' % report.level1_amount }}</div>
+  </div>
+  <div class="stat">
+    <div class="n">{{ report.active_indirect }}<span class="muted" style="font-size:16px;">/{{ report.total_indirect }}</span></div>
+    <div class="k">🥈 level 2 active · ₹{{ '%g' % report.level2_amount }}</div>
+  </div>
   <div class="stat"><div class="n">{{ st.interactions }}</div><div class="k">own interactions</div></div>
   <div class="stat"><div class="n">₹{{ '%g' % report.amount }}</div><div class="k">payable</div></div>
 </div>
@@ -78,22 +84,25 @@
   </div>
 </div>
 
-<h2>Referrals in {{ month }}</h2>
+<h2>Downline in {{ month }}</h2>
+<p class="sub small">Level 1 pays ₹{{ '%g' % report.rates.level1 }} per active member, level 2 pays ₹{{ '%g' % report.rates.level2 }}. <a href="/admin/settings">Change the rates</a>.</p>
 <div class="card table-scroll">
   <table>
-    <thead><tr><th>ID</th><th>Name</th><th>Group</th><th>Channel</th><th class="num">Acts</th><th>Counts</th></tr></thead>
+    <thead><tr><th>Level</th><th>ID</th><th>Name</th><th>Invited by</th><th>Group</th><th>Channel</th><th class="num">Acts</th><th>Counts</th></tr></thead>
     <tbody>
-    {% for row in report.rows %}
+    {% for row in report.level1_rows + report.level2_rows %}
       <tr>
+        <td>{% if row.level == 1 %}<span class="pill ok">🥇 L1</span>{% else %}<span class="pill info">🥈 L2</span>{% endif %}</td>
         <td><a href="/admin/users/{{ row.user.uid }}"><code>{{ row.user.uid }}</code></a></td>
-        <td>{{ row.user.full_name or row.user.username or '—' }}</td>
+        <td>{{ row.name }}</td>
+        <td class="small">{% if row.via_uid %}<a href="/admin/users/{{ row.via_uid }}"><code>{{ row.via_uid }}</code></a>{% else %}<span class="muted">direct</span>{% endif %}</td>
         <td>{% if row.status.in_group %}✅{% else %}❌{% endif %}</td>
         <td>{% if row.status.in_channel %}✅{% else %}❌{% endif %}</td>
         <td class="num">{{ row.status.interactions }}</td>
         <td>{% if row.status.active %}<span class="pill ok">₹{{ '%g' % row.amount }}</span>{% else %}<span class="pill">{{ row.status.reason }}</span>{% endif %}</td>
       </tr>
     {% else %}
-      <tr><td colspan="6" class="muted">No referrals.</td></tr>
+      <tr><td colspan="8" class="muted">No downline.</td></tr>
     {% endfor %}
     </tbody>
   </table>

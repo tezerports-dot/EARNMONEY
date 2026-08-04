@@ -7,10 +7,12 @@ panel. One process, SQLite, no docker.
   referral link and tap a single button: that shares their contact, verifies
   them, places them in exactly one group and one channel, and hands back their
   public ID and their own referral link.
-* **₹10 per active referred member per month.** "Active" means a member of
-  *both* their group and their channel who interacted with a bot at least once
-  that IST month. Membership alone never counts, and extra taps never pay
-  extra.
+* **Two levels of earnings, ₹5 + ₹5 by default.** You earn on the people you
+  invite *and* on the people they invite. Both rates are editable in the admin
+  panel and apply immediately.
+* **Paid per active member per month.** "Active" means a member of *both*
+  their group and their channel who interacted with a bot at least once that
+  IST month. Membership alone never counts, and extra taps never pay extra.
 * **Four bot roles, one database.** A main bot for onboarding and payouts, a
   moderation bot for behaviour and bans, a collector bot that asks for bank
   details daily, and a broadcast bot that copies whatever an owner sends it
@@ -37,9 +39,31 @@ which is what makes the rest work.
 
 ---
 
+## Two-level earnings
+
+```
+A ──refers──▶ B ──refers──▶ C, D, E
+│                            │
+└─ level 1: ₹5 for B         └─ level 2: ₹5 each for C, D and E
+```
+
+So in that picture **A earns ₹20** (₹5 on B, plus ₹5 each on C, D and E) and
+**B earns ₹15** (₹5 each on C, D and E).
+
+It stops at two levels. Whoever C invites pays C at level 1 and B at level 2,
+but nothing to A.
+
+Each member is judged on **their own** activity. If B stops participating, B
+loses B's own earnings — but C, D and E still count for A at level 2.
+
+Both rates live in **Admin → Settings** (`payout_level1`, `payout_level2`) and
+take effect immediately, including for the month already in progress. Setting
+level 2 to `0` turns the scheme back into a plain one-level referral system
+without losing the tracking.
+
 ## The activity rule
 
-A referred user counts for a month when **all three** hold:
+A member of your downline counts for a month when **all three** hold:
 
 1. currently a member of the managed **channel**,
 2. currently a member of the managed **group**,
@@ -50,13 +74,14 @@ message in a managed group, a vote in a bot-created poll, or a direct message
 to a bot.
 
 * One interaction unlocks the month. It is per-person-per-month, not
-  per-click — a thousand taps still pay ₹10 once.
+  per-click — a thousand taps pay the same as one.
 * Leaving either chat makes them inactive **immediately**, no matter what they
   did earlier that month. Rejoining restores them, and interactions already
   recorded that month still count.
 * Next month needs a *new* interaction. Membership carrying over is not enough.
-* The referrer must clear the same bar themselves — in both chats, at least
-  one interaction — plus be verified and non-duplicate, to be paid at all.
+* The earner must clear the same bar themselves — in both chats, at least one
+  interaction — plus be verified and non-duplicate, to be paid at all, at
+  either level.
 
 Months run from the 1st at 00:00 IST to the last day at 23:59 IST
 (`zoneinfo("Asia/Kolkata")`, never UTC). Nothing is precomputed by a cron job:
@@ -153,7 +178,7 @@ sudo nano /opt/referral/.env
 | `ADMIN_IDS` | Comma-separated Telegram user ids allowed to drive the broadcast bot and moderation commands. Get yours from [@userinfobot](https://t.me/userinfobot). |
 | `BOT_TOKENS` | Seed tokens as `role:token`, comma separated. Only read on first boot — after that the database is the source of truth. |
 | `PUBLIC_BASE_URL` | e.g. `https://referral.example.com`. Used in bot messages, and switches the admin cookie to `Secure`. |
-| `PAYOUT_PER_ACTIVE` | Default `10`. |
+| `PAYOUT_LEVEL1` / `PAYOUT_LEVEL2` | Default `5` and `5`. Seed values only — once the database exists, the admin panel owns the rates. |
 | `DAILY_PROMPT_HOUR` | IST hour for the daily bank-details sweep. Default `10`. |
 
 Then set `server_name` in `/etc/nginx/sites-available/referral` and:
@@ -235,7 +260,7 @@ app/
     auth.py          signed-cookie admin session
   templates/  static/
 deploy/              systemd unit, nginx site, install.sh
-tests/               73 tests, no network needed
+tests/               96 tests, no network needed
 ```
 
 ## Development

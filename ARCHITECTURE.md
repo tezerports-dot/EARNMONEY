@@ -225,7 +225,7 @@ on eligibility — one row anywhere in the month is the entire requirement, so
 
 ---
 
-## 8. The activity rule and payouts
+## 8. The activity rule and two-level payouts
 
 `app/earnings.py`. `ActivityStatus` evaluates one user for one month and
 exposes both the verdict and the reason, so the bot, the public page and the
@@ -245,9 +245,59 @@ active = verified and not duplicate and not banned
   count.
 * A new month needs a new interaction; membership carrying over is not enough.
 
-`EarningsReport` separates `gross` (what the referrals are worth) from `amount`
-(what is actually payable), because a referrer who is themselves inactive earns
-nothing — and the UI needs to say *why* rather than show a bare zero.
+### Two levels
+
+```
+A ──refers──▶ B ──refers──▶ C, D, E
+     level 1                level 2 (for A), level 1 (for B)
+```
+
+Level 1 is `db.referrals_of(uid)` — a plain index lookup on
+`users.referred_by_uid`. Level 2 is `db.level2_referrals_of(uid)`, one join
+rather than a query per direct referral:
+
+```sql
+SELECT c.*, b.uid AS via_uid FROM users c
+  JOIN users b ON b.uid = c.referred_by_uid
+ WHERE b.referred_by_uid = ? AND c.uid <> ?
+```
+
+The `c.uid <> ?` clause closes the only cycle the data permits: A refers B,
+then A later opens B's link and becomes B's referral, which would otherwise
+put A in A's own level 2. `handlers/onboarding.cmd_start` also refuses that
+link up front, so the guard is belt and braces.
+
+It stops at two. `report_for` walks exactly these two queries — there is no
+recursion and no configurable depth, so a chain of a thousand members costs
+the same two lookups as a chain of three.
+
+**Each member is judged on their own activity.** An inactive B loses B's own
+earnings but does not remove C, D and E from A's level 2. That is the literal
+reading of the requirement, and it keeps one person's lapse from cascading
+through everyone above them.
+
+`EarningsReport` splits the downline into `level1_rows` and `level2_rows`,
+each row carrying the rate that applied to it, and separates `gross` (what the
+downline is worth) from `amount` (what is actually payable) — because an earner
+who is themselves inactive earns nothing, and the UI needs to say *why* rather
+than show a bare zero.
+
+### Rates are data
+
+`payout_level1` and `payout_level2` live in the `settings` table and are read
+fresh by `earnings.rates()` on every calculation — never captured at import
+time. That is why editing them in the admin panel takes effect immediately,
+including for the month in progress, and why the Jinja global is the callable
+`rates()` rather than a value.
+
+`PAYOUT_LEVEL1` / `PAYOUT_LEVEL2` in the environment only seed the table on
+first boot, the same arrangement as `BOT_TOKENS`.
+
+`admin.settings_save` validates the `number` fields and **refuses** anything
+non-numeric or negative instead of coercing it, because a rate that silently
+became `0` would zero out everyone's earnings with no visible error. Setting
+level 2 to a deliberate `0` is still allowed and turns the scheme back into a
+one-level system while keeping the tracking.
 
 `/withdraw` refuses unless the referrer is payable, the amount is positive, and
 bank details are on file. `withdrawals` has `UNIQUE(user_id, month)`, so one
@@ -337,6 +387,9 @@ Bot tokens are always displayed masked.
 | Duplicate `/start` | `create_user` upserts; profile fields refresh, UID and referrer do not change. |
 | UID collision | Insert retries against the UNIQUE index, up to 25 times. |
 | Self-referral | Rejected with a message; registration continues without a referrer. |
+| Reciprocal referral (A refers B, then A opens B's link) | Refused at `/start`, and `level2_referrals_of` excludes the caller anyway, so nobody can be their own level-2 downline. |
+| Payout rate edited mid-month | Applies immediately — earnings are always recomputed at the current rates, never snapshotted. Amounts already written into a `withdrawals` row keep the figure that was requested. |
+| Payout rate set to something non-numeric or negative | Refused by the admin panel with a message; the previous rate stands. A deliberate `0` is accepted. |
 | Referrer is banned or duplicate | Link ignored; the new user still registers. |
 | Same phone on a second account | Newer account flagged duplicate, banned everywhere, detached from its referrer. |
 | Second `/bank` | Refused, existing details shown masked. |
@@ -358,12 +411,18 @@ Bot tokens are always displayed masked.
 
 ## 14. Tests
 
-`tests/` — 73 tests, no network, each on a fresh database.
+`tests/` — 96 tests, no network, each on a fresh database.
 
 * `test_activity_rules.py` — the three conditions, per-person-per-month
-  (a thousand taps still pay ₹10 once), leave/rejoin, ineligible referrer,
+  (a thousand taps pay the same as one), leave/rejoin, ineligible referrer,
   unverified/duplicate/banned referrals, the IST month boundary, and the fact
   that a new month needs a new interaction.
+* `test_two_levels.py` — the A→B→{C,D,E} scenario end to end (A earns ₹20, B
+  earns ₹15), earnings stopping at two levels, an inactive middle member not
+  costing the top their level 2, the reciprocal-referral guard, rate changes
+  taking effect immediately, a zero level-2 rate, fractional rates, a corrupt
+  rate setting falling back rather than crashing, and month totals not
+  double-counting across earners.
 * `test_flows.py` — UID shape and normalisation, referral payload round-trip,
   phone hashing, `/start` idempotency, duplicate handling, all five placement
   rules, bank validation, one-submission-only, one-withdrawal-per-month,

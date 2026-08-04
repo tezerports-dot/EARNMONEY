@@ -1,19 +1,42 @@
-"""The activity rule and the money that follows from it.
+"""The activity rule, and the two-level payout that follows from it.
 
-A referred user counts for exactly ``PAYOUT_PER_ACTIVE`` INR in a given IST
-month if and only if all three of these hold:
+Activity
+--------
+A downline member counts for a given IST month if and only if all three hold:
 
 1. they are currently a member of the managed **channel** of their pair,
 2. they are currently a member of the managed **group** of their pair,
 3. they produced at least **one** recorded interaction in that IST month.
 
 Membership on its own never counts. One interaction is enough: the status is
-per-person-per-month, not per-click, so a thousand button taps still pay 10
-INR once. Leaving either chat drops the user to inactive immediately, whatever
-they did earlier in the month.
+per-person-per-month, not per-click, so a thousand button taps pay the same as
+one. Leaving either chat drops them to inactive immediately, whatever they did
+earlier in the month.
 
-Nothing here is precomputed by a cron job — activity is derived on read, so a
-user who leaves at 14:59 is already inactive at 15:00.
+Two levels
+----------
+Earnings run two levels deep::
+
+    A ──refers──▶ B ──refers──▶ C
+    │                            │
+    └──── level 1: ₹L1 ──────────┘  for B
+    └──── level 2: ₹L2 ─────────────for C
+
+So if B also brings in D and E, A earns level 2 on C, D and E, while B earns
+level 1 on each of them. Nothing goes deeper than that: C's own referrals pay
+C (level 1) and B (level 2), but never A.
+
+Each downline member is judged on **their own** activity. B being inactive
+costs B their own earnings; it does not remove C, D or E from A's level-2
+count.
+
+The earner must still clear the bar themselves — verified, non-duplicate, in
+both their chats, and at least one interaction that month — to be paid
+anything at all.
+
+Both rates live in the ``settings`` table and are editable from the admin
+panel, so they are read fresh on every calculation rather than frozen at
+import time.
 """
 
 from __future__ import annotations
@@ -22,10 +45,33 @@ import sqlite3
 from dataclasses import dataclass
 
 from app import db
-from app.config import settings
 from app.timeutil import current_month
 
-RATE = settings.payout_per_active
+LEVEL1 = 1
+LEVEL2 = 2
+
+
+@dataclass(frozen=True)
+class Rates:
+    """Current INR-per-active-member rates, per level."""
+
+    level1: float
+    level2: float
+
+    def of(self, level: int) -> float:
+        return self.level1 if level == LEVEL1 else self.level2
+
+    @property
+    def total(self) -> float:
+        """What one full A→B→C chain is worth to the person at the top."""
+        return round(self.level1 + self.level2, 2)
+
+
+def rates() -> Rates:
+    return Rates(
+        level1=db.get_setting_float("payout_level1", 5.0),
+        level2=db.get_setting_float("payout_level2", 5.0),
+    )
 
 
 @dataclass(frozen=True)
@@ -118,13 +164,24 @@ def is_active(user_id: int, month: str | None = None) -> bool:
 
 
 @dataclass(frozen=True)
-class ReferralBreakdown:
+class DownlineRow:
+    """One person below the earner, at level 1 or level 2."""
+
     user: sqlite3.Row
     status: ActivityStatus
+    level: int
+    rate: float
+    via_uid: str | None = None  # level 2 only: who introduced them
 
     @property
     def amount(self) -> float:
-        return RATE if self.status.active else 0.0
+        return self.rate if self.status.active else 0.0
+
+    @property
+    def name(self) -> str:
+        return str(
+            self.user["full_name"] or self.user["username"] or self.user["uid"]
+        )
 
 
 @dataclass(frozen=True)
@@ -132,28 +189,71 @@ class EarningsReport:
     uid: str
     month: str
     referrer_status: ActivityStatus
-    rows: list[ReferralBreakdown]
+    rows: list[DownlineRow]
+    rates: Rates
+
+    # -- level 1 (direct) --------------------------------------------------- #
+
+    @property
+    def level1_rows(self) -> list[DownlineRow]:
+        return [row for row in self.rows if row.level == LEVEL1]
 
     @property
     def total_referrals(self) -> int:
-        return len(self.rows)
+        return len(self.level1_rows)
 
     @property
     def active_referrals(self) -> int:
-        return sum(1 for row in self.rows if row.status.active)
+        return sum(1 for row in self.level1_rows if row.status.active)
 
     @property
     def inactive_referrals(self) -> int:
         return self.total_referrals - self.active_referrals
 
     @property
+    def level1_amount(self) -> float:
+        return round(sum(row.amount for row in self.level1_rows), 2)
+
+    # -- level 2 (indirect) ------------------------------------------------- #
+
+    @property
+    def level2_rows(self) -> list[DownlineRow]:
+        return [row for row in self.rows if row.level == LEVEL2]
+
+    @property
+    def total_indirect(self) -> int:
+        return len(self.level2_rows)
+
+    @property
+    def active_indirect(self) -> int:
+        return sum(1 for row in self.level2_rows if row.status.active)
+
+    @property
+    def inactive_indirect(self) -> int:
+        return self.total_indirect - self.active_indirect
+
+    @property
+    def level2_amount(self) -> float:
+        return round(sum(row.amount for row in self.level2_rows), 2)
+
+    # -- totals ------------------------------------------------------------- #
+
+    @property
+    def total_downline(self) -> int:
+        return len(self.rows)
+
+    @property
+    def active_downline(self) -> int:
+        return self.active_referrals + self.active_indirect
+
+    @property
     def gross(self) -> float:
-        """What the referrals are worth before the referrer's own gate."""
-        return round(self.active_referrals * RATE, 2)
+        """What both levels are worth before the earner's own gate."""
+        return round(self.level1_amount + self.level2_amount, 2)
 
     @property
     def payable(self) -> bool:
-        """The referrer must themselves be active to earn anything at all."""
+        """The earner must themselves be active to receive anything."""
         return self.referrer_status.active
 
     @property
@@ -167,13 +267,35 @@ class EarningsReport:
 
 def report_for(user: sqlite3.Row, month: str | None = None) -> EarningsReport:
     month = month or current_month()
-    referred = db.referrals_of(str(user["uid"]))
-    rows = [ReferralBreakdown(user=row, status=status_for(row, month)) for row in referred]
+    uid = str(user["uid"])
+    current = rates()
+
+    rows = [
+        DownlineRow(
+            user=row,
+            status=status_for(row, month),
+            level=LEVEL1,
+            rate=current.level1,
+        )
+        for row in db.referrals_of(uid)
+    ]
+    rows += [
+        DownlineRow(
+            user=row,
+            status=status_for(row, month),
+            level=LEVEL2,
+            rate=current.level2,
+            via_uid=str(row["via_uid"]),
+        )
+        for row in db.level2_referrals_of(uid)
+    ]
+
     return EarningsReport(
-        uid=str(user["uid"]),
+        uid=uid,
         month=month,
         referrer_status=status_for(user, month),
         rows=rows,
+        rates=current,
     )
 
 
@@ -186,33 +308,45 @@ def amount_for(user: sqlite3.Row, month: str | None = None) -> float:
     return report_for(user, month).amount
 
 
-def leaderboard(month: str | None = None, limit: int = 20) -> list[tuple[sqlite3.Row, int, float]]:
-    """``(user, active_referral_count, amount)`` for the top referrers."""
-    month = month or current_month()
-    referrer_uids = [
-        row["referred_by_uid"]
+def _earner_candidates() -> list[str]:
+    """UIDs that could possibly earn: anyone with at least one direct referral.
+
+    Level 2 always has a level-1 member in between, so nobody outside this set
+    can have downline income.
+    """
+    return [
+        str(row["referred_by_uid"])
         for row in db.query(
             "SELECT DISTINCT referred_by_uid FROM users WHERE referred_by_uid IS NOT NULL"
         )
     ]
-    out: list[tuple[sqlite3.Row, int, float]] = []
-    for uid in referrer_uids:
+
+
+def leaderboard(
+    month: str | None = None, limit: int = 20
+) -> list[tuple[sqlite3.Row, EarningsReport]]:
+    """``(user, report)`` for the top earners, best first."""
+    month = month or current_month()
+    out: list[tuple[sqlite3.Row, EarningsReport]] = []
+    for uid in _earner_candidates():
         user = db.get_user_by_uid(uid)
         if user is None:
             continue
         report = report_for(user, month)
-        if report.active_referrals:
-            out.append((user, report.active_referrals, report.amount))
-    out.sort(key=lambda item: (-item[1], item[0]["uid"]))
+        if report.active_downline:
+            out.append((user, report))
+    out.sort(key=lambda item: (-item[1].gross, -item[1].active_downline, item[0]["uid"]))
     return out[:limit]
 
 
-def month_totals(month: str | None = None) -> dict[str, float | int]:
+def month_totals(month: str | None = None) -> dict[str, float | int | str]:
     month = month or current_month()
     board = leaderboard(month, limit=10_000)
     return {
         "month": month,
         "earning_referrers": len(board),
-        "active_referred": sum(count for _, count, _ in board),
-        "total_inr": round(sum(amount for _, _, amount in board), 2),
+        "active_referred": sum(report.active_referrals for _, report in board),
+        "active_indirect": sum(report.active_indirect for _, report in board),
+        "active_downline": sum(report.active_downline for _, report in board),
+        "total_inr": round(sum(report.amount for _, report in board), 2),
     }

@@ -7,10 +7,14 @@
 
 <form method="post" action="/admin/settings">
   <div class="card">
+    {% set r = rates() %}
+    <p class="small muted">Payout rates apply immediately, including to the month already in progress — earnings are always recalculated at the current rates. Right now one member you invite is worth ₹{{ '%g' % r.level1 }}, and one they invite is worth ₹{{ '%g' % r.level2 }} to you.</p>
     {% for key, label, kind in fields %}
       <label for="{{ key }}">{{ label }} <span class="mono muted">{{ key }}</span></label>
       {% if kind == 'textarea' %}
         <textarea id="{{ key }}" name="{{ key }}">{{ values.get(key, '') }}</textarea>
+      {% elif kind == 'number' %}
+        <input type="number" step="0.01" min="0" id="{{ key }}" name="{{ key }}" value="{{ values.get(key, '') }}">
       {% else %}
         <input type="text" id="{{ key }}" name="{{ key }}" value="{{ values.get(key, '') }}">
       {% endif %}

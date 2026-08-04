@@ -24,7 +24,7 @@ from app.bots.common import (
 )
 from app.bots.services import assign_pair_and_links, handle_duplicate
 from app.bots.telegram_utils import esc
-from app.earnings import RATE
+from app.earnings import rates
 from app.ids import hash_phone, parse_referral_payload
 
 log = logging.getLogger("bots.onboarding")
@@ -50,6 +50,17 @@ async def cmd_start(
         referrer = None
     if referrer is not None and (referrer["duplicate"] or referrer["banned"]):
         await message.answer("That referral link belongs to a blocked account, so it was ignored.")
+        referrer = None
+    if (
+        referrer is not None
+        and existing is not None
+        and referrer["referred_by_uid"] == existing["uid"]
+    ):
+        # A refers B, then A opens B's link. Accepting it would make the two
+        # of them each other's upline and each other's level-2 downline.
+        await message.answer(
+            "You already invited that member, so their link does not apply to you."
+        )
         referrer = None
 
     user = ensure_user(
@@ -189,11 +200,16 @@ async def send_account_card(
             "notified; you will get your links as soon as one is configured.",
         ]
 
+    current = rates()
     lines += [
         "",
-        "<b>How you earn</b>",
-        f"• ₹{RATE:g} for every person you invite who stays in <b>both</b> your "
-        "group and your channel and interacts with the bot at least once that month.",
+        "<b>How you earn — two levels</b>",
+        f"• 🥇 <b>₹{current.level1:g}</b> for every person <b>you</b> invite.",
+        f"• 🥈 <b>₹{current.level2:g}</b> for every person <b>they</b> invite.",
+        f"  So one friend who brings in a friend is worth ₹{current.total:g} to you.",
+        "• Each of them counts for a month only if they stay in <b>both</b> "
+        "their group and their channel <b>and</b> interact with a bot at least "
+        "once that month.",
         "• Membership alone does not count, and extra taps do not pay extra.",
         "• You must be in both chats and interact at least once yourself to be paid.",
     ]

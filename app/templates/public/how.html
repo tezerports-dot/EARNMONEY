@@ -10,15 +10,28 @@
   <p class="small muted">Your phone number is stored only as a SHA-256 hash. It is never displayed, exported or shared — it exists so one person cannot hold two accounts.</p>
 </div>
 
+{% set r = rates() %}
 <div class="card">
-  <h3>Earning ₹{{ rate }} per active member</h3>
-  <p>A person you referred counts for a month when <b>all three</b> are true:</p>
+  <h3>Two levels of earnings</h3>
+  <p>You earn on the people you invite <b>and</b> on the people they invite:</p>
+  <ul>
+    <li>🥇 <b>Level 1 — ₹{{ '%g' % r.level1 }}</b> for each active member you invited yourself.</li>
+    <li>🥈 <b>Level 2 — ₹{{ '%g' % r.level2 }}</b> for each active member one of <i>your</i> referrals invited.</li>
+  </ul>
+  <p>So if you invite <b>B</b>, and B invites <b>C</b>, <b>D</b> and <b>E</b>: you earn ₹{{ '%g' % r.level1 }} on B plus ₹{{ '%g' % r.level2 }} each on C, D and E — ₹{{ '%g' % (r.level1 + r.level2 * 3) }} in total — while B earns ₹{{ '%g' % r.level1 }} each on C, D and E.</p>
+  <p>It stops at two levels. Whoever C invites pays C at level 1 and B at level 2, but nothing to you.</p>
+</div>
+
+<div class="card">
+  <h3>What makes someone count</h3>
+  <p>A member of your downline counts for a month when <b>all three</b> are true:</p>
   <ul>
     <li>they are still a member of the channel,</li>
     <li>they are still a member of the group,</li>
     <li>they interacted with a bot at least once during that month — a button tap, a command, a message in the group, or a vote in a poll the bot posted.</li>
   </ul>
-  <p>Membership on its own never counts. Extra taps never pay extra: one interaction in the month is the whole requirement, and a thousand taps still pay ₹{{ rate }} once. If someone leaves either chat they stop counting immediately.</p>
+  <p>Membership on its own never counts. Extra taps never pay extra: one interaction in the month is the whole requirement, and a thousand taps still pay once. If someone leaves either chat they stop counting immediately.</p>
+  <p>Everyone is judged on their own activity, so an inactive person at level 1 costs themselves their earnings but does not remove the people below them from your level 2.</p>
   <p>To be paid at all you must meet the same bar yourself: in both chats, and at least one interaction that month.</p>
 </div>
 

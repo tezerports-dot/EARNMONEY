@@ -160,6 +160,11 @@ CREATE TABLE IF NOT EXISTS settings (
 """
 
 DEFAULT_SETTINGS = {
+    # Two-level payout rates, in INR per active downline member per month.
+    # Seeded from the environment on first boot, edited in the admin panel
+    # afterwards.
+    "payout_level1": f"{settings.payout_level1:g}",
+    "payout_level2": f"{settings.payout_level2:g}",
     "daily_prompt_text": (
         "💳 <b>Daily reminder</b>\n\n"
         "Payouts go out by bank transfer once a month. If you have not "
@@ -303,6 +308,13 @@ def get_setting(key: str, default: str = "") -> str:
 def get_setting_int(key: str, default: int) -> int:
     try:
         return int(get_setting(key, str(default)) or default)
+    except ValueError:
+        return default
+
+
+def get_setting_float(key: str, default: float) -> float:
+    try:
+        return float(get_setting(key, str(default)) or default)
     except ValueError:
         return default
 
@@ -468,8 +480,26 @@ def list_users(
 
 
 def referrals_of(uid: str) -> list[sqlite3.Row]:
+    """Level 1: the people this user introduced directly."""
     return query(
         "SELECT * FROM users WHERE referred_by_uid = ? ORDER BY joined_at DESC", (uid,)
+    )
+
+
+def level2_referrals_of(uid: str) -> list[sqlite3.Row]:
+    """Level 2: the people *their* direct referrals introduced.
+
+    Each row carries ``via_uid`` — the level-1 member who brought them in — so
+    the breakdown can show the chain. ``c.uid <> ?`` guards the one cycle the
+    data allows: A refers B, then A later opens B's link and becomes B's
+    referral, which would otherwise make A their own level-2 downline.
+    """
+    return query(
+        "SELECT c.*, b.uid AS via_uid FROM users c"
+        " JOIN users b ON b.uid = c.referred_by_uid"
+        " WHERE b.referred_by_uid = ? AND c.uid <> ?"
+        " ORDER BY c.joined_at DESC",
+        (uid, uid),
     )
 
 

@@ -25,15 +25,16 @@
 <h2>Top referrers — {{ month }}</h2>
 <div class="card table-scroll">
   <table>
-    <thead><tr><th>#</th><th>ID</th><th>Name</th><th class="num">Active referrals</th><th class="num">Earnings</th></tr></thead>
+    <thead><tr><th>#</th><th>ID</th><th>Name</th><th class="num">🥇 L1</th><th class="num">🥈 L2</th><th class="num">Earnings</th></tr></thead>
     <tbody>
-    {% for user, count, amount in board %}
+    {% for user, report in board %}
       <tr>
         <td>{{ loop.index }}</td>
         <td><a href="/u/{{ user.uid }}"><code>{{ user.uid }}</code></a></td>
         <td>{{ user.full_name or user.username or "—" }}</td>
-        <td class="num">{{ count }}</td>
-        <td class="num">₹{{ '%g' % amount }}</td>
+        <td class="num">{{ report.active_referrals }}</td>
+        <td class="num">{{ report.active_indirect }}</td>
+        <td class="num">₹{{ '%g' % report.amount }}</td>
       </tr>
     {% endfor %}
     </tbody>

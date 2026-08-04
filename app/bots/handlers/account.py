@@ -12,7 +12,7 @@ from app.bots.routerspec import RouterSpec
 from app.bank import mask_account
 from app.bots.common import contact_keyboard
 from app.bots.telegram_utils import esc, notify_admins
-from app.earnings import RATE, EarningsReport, report_for
+from app.earnings import EarningsReport, report_for
 from app.timeutil import current_month, human_ist
 
 router = RouterSpec("account")
@@ -32,39 +32,56 @@ def _require_verified(user) -> str | None:
     return None
 
 
+def _breakdown_lines(rows, limit: int) -> list[str]:
+    out: list[str] = []
+    for row in rows[:limit]:
+        mark = "✅" if row.status.active else "❌"
+        detail = (
+            f"{row.status.interactions} interaction(s) · ₹{row.amount:g}"
+            if row.status.active
+            else row.status.reason
+        )
+        via = f" · via {esc(row.via_uid)}" if row.via_uid else ""
+        out.append(
+            f"{mark} {esc(row.name)} — <code>{esc(row.user['uid'])}</code> · "
+            f"{esc(detail)}{via}"
+        )
+    if len(rows) > limit:
+        out.append(f"… and {len(rows) - limit} more")
+    return out
+
+
 def format_earnings(report: EarningsReport, verbose: bool = True) -> str:
     st = report.referrer_status
+    rates = report.rates
     lines = [
         f"💰 <b>Earnings — {report.month}</b>",
         "",
-        f"Referrals: <b>{report.total_referrals}</b>  "
-        f"(active <b>{report.active_referrals}</b>, inactive {report.inactive_referrals})",
-        f"Rate: ₹{RATE:g} per active referral",
-        f"Amount this month: <b>₹{report.amount:g}</b>",
+        f"🥇 <b>Level 1</b> (people you invited): {report.total_referrals} "
+        f"— active <b>{report.active_referrals}</b> × ₹{rates.level1:g} = "
+        f"<b>₹{report.level1_amount:g}</b>",
+        f"🥈 <b>Level 2</b> (people <i>they</i> invited): {report.total_indirect} "
+        f"— active <b>{report.active_indirect}</b> × ₹{rates.level2:g} = "
+        f"<b>₹{report.level2_amount:g}</b>",
+        "",
+        f"💵 Total this month: <b>₹{report.amount:g}</b>",
     ]
     if not report.payable:
         lines += [
             "",
             f"⚠️ You are not eligible right now: <b>{esc(st.reason)}</b>.",
-            f"Your referrals are worth ₹{report.gross:g}, but you only get paid "
+            f"Your downline is worth ₹{report.gross:g}, but you only get paid "
             "for a month in which you are in both your group and your channel "
             "and interacted with the bot at least once.",
         ]
 
-    if verbose and report.rows:
-        lines += ["", "<b>Your referrals</b>"]
-        for row in report.rows[:40]:
-            mark = "✅" if row.status.active else "❌"
-            name = row.user["full_name"] or row.user["username"] or row.user["uid"]
-            detail = (
-                f"{row.status.interactions} interaction(s)"
-                if row.status.active
-                else row.status.reason
-            )
-            lines.append(f"{mark} {esc(name)} — <code>{esc(row.user['uid'])}</code> · {esc(detail)}")
-        if len(report.rows) > 40:
-            lines.append(f"… and {len(report.rows) - 40} more")
-    elif verbose:
+    if verbose and report.level1_rows:
+        lines += ["", f"<b>Level 1 — ₹{rates.level1:g} each</b>"]
+        lines += _breakdown_lines(report.level1_rows, 25)
+    if verbose and report.level2_rows:
+        lines += ["", f"<b>Level 2 — ₹{rates.level2:g} each</b>"]
+        lines += _breakdown_lines(report.level2_rows, 25)
+    if verbose and not report.rows:
         lines += ["", "You have no referrals yet. Send /link to get your link."]
     return "\n".join(lines)
 
@@ -108,16 +125,27 @@ async def cb_referrals(callback: CallbackQuery) -> None:
     if not report.rows:
         await callback.message.answer("You have no referrals yet. Send /link to get your link.")
         return
-    lines = [f"👥 <b>Your referrals ({report.total_referrals})</b>", ""]
-    for row in report.rows[:60]:
-        mark = "✅" if row.status.active else "❌"
-        name = row.user["full_name"] or row.user["username"] or row.user["uid"]
-        lines.append(
-            f"{mark} {esc(name)} · <code>{esc(row.user['uid'])}</code> · "
-            f"joined {esc(human_ist(row.user['joined_at']))}"
-        )
-    if len(report.rows) > 60:
-        lines.append(f"… and {len(report.rows) - 60} more")
+
+    lines = [
+        f"👥 <b>Your downline</b> — {report.total_referrals} direct, "
+        f"{report.total_indirect} indirect",
+    ]
+    for title, rows in (
+        ("🥇 Level 1 — you invited them", report.level1_rows),
+        ("🥈 Level 2 — your referrals invited them", report.level2_rows),
+    ):
+        if not rows:
+            continue
+        lines += ["", f"<b>{title}</b>"]
+        for row in rows[:40]:
+            mark = "✅" if row.status.active else "❌"
+            via = f" · via {esc(row.via_uid)}" if row.via_uid else ""
+            lines.append(
+                f"{mark} {esc(row.name)} · <code>{esc(row.user['uid'])}</code> · "
+                f"joined {esc(human_ist(row.user['joined_at']))}{via}"
+            )
+        if len(rows) > 40:
+            lines.append(f"… and {len(rows) - 40} more")
     await callback.message.answer("\n".join(lines))
 
 
@@ -136,8 +164,8 @@ async def _do_withdraw(user, answer) -> None:
         return
     if report.amount <= 0:
         await answer(
-            "You have no active referrals this month, so there is nothing to "
-            "withdraw yet. Send /link and invite someone."
+            "Nobody in your downline is active this month, so there is nothing "
+            "to withdraw yet. Send /link and invite someone."
         )
         return
 
@@ -167,7 +195,10 @@ async def _do_withdraw(user, answer) -> None:
     await answer(
         f"✅ <b>Payout requested</b>\n\n"
         f"Month: {esc(month)}\n"
-        f"Active referrals: {report.active_referrals}\n"
+        f"Level 1: {report.active_referrals} active × ₹{report.rates.level1:g} = "
+        f"₹{report.level1_amount:g}\n"
+        f"Level 2: {report.active_indirect} active × ₹{report.rates.level2:g} = "
+        f"₹{report.level2_amount:g}\n"
         f"Amount: <b>₹{report.amount:g}</b>\n"
         f"To: {esc(bank['full_name'])} · {esc(mask_account(bank['account_number']))} · "
         f"{esc(bank['ifsc'])}\n\n"
@@ -176,7 +207,8 @@ async def _do_withdraw(user, answer) -> None:
     )
     await notify_admins(
         f"💸 Payout request from {esc(user['uid'])} — ₹{report.amount:g} for {esc(month)} "
-        f"({report.active_referrals} active referrals)."
+        f"({report.active_referrals} active at level 1, "
+        f"{report.active_indirect} at level 2)."
     )
 
 

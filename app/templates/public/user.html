@@ -21,9 +21,15 @@
 </form>
 
 <div class="grid cols-4">
-  <div class="stat"><div class="n">{{ report.total_referrals }}</div><div class="k">referrals total</div></div>
-  <div class="stat"><div class="n">{{ report.active_referrals }}</div><div class="k">active in {{ month }}</div></div>
-  <div class="stat"><div class="n">{{ report.inactive_referrals }}</div><div class="k">inactive</div></div>
+  <div class="stat">
+    <div class="n">{{ report.active_referrals }}<span class="muted" style="font-size:16px;">/{{ report.total_referrals }}</span></div>
+    <div class="k">🥇 level 1 active · ₹{{ '%g' % report.level1_amount }}</div>
+  </div>
+  <div class="stat">
+    <div class="n">{{ report.active_indirect }}<span class="muted" style="font-size:16px;">/{{ report.total_indirect }}</span></div>
+    <div class="k">🥈 level 2 active · ₹{{ '%g' % report.level2_amount }}</div>
+  </div>
+  <div class="stat"><div class="n">{{ report.total_downline }}</div><div class="k">downline total</div></div>
   <div class="stat"><div class="n">₹{{ '%g' % report.amount }}</div><div class="k">earnings {{ month }}</div></div>
 </div>
 
@@ -39,8 +45,9 @@
       {% if withdrawal %}<tr><td>Payout request</td><td><span class="pill info">{{ withdrawal.status }}</span> ₹{{ '%g' % withdrawal.amount }}</td></tr>{% endif %}
     </table>
     {% if not report.payable and report.gross > 0 %}
-      <p class="small muted">Their referrals are worth ₹{{ '%g' % report.gross }}, but nothing is payable while they are {{ st.reason }}.</p>
+      <p class="small muted">Their downline is worth ₹{{ '%g' % report.gross }}, but nothing is payable while they are {{ st.reason }}.</p>
     {% endif %}
+    <p class="small muted">Rates: ₹{{ '%g' % report.rates.level1 }} per active level-1 member, ₹{{ '%g' % report.rates.level2 }} per active level-2 member.</p>
   </div>
 
   <div class="card">
@@ -68,15 +75,20 @@
   </div>
 </div>
 
-<h2>Referrals</h2>
+{% macro downline_table(rows, empty, show_via) %}
 <div class="card table-scroll">
   <table>
-    <thead><tr><th>ID</th><th>Name</th><th>Joined</th><th>Group</th><th>Channel</th><th class="num">Interactions</th><th>Status</th></tr></thead>
+    <thead>
+      <tr><th>ID</th><th>Name</th>{% if show_via %}<th>Invited by</th>{% endif %}
+          <th>Joined</th><th>Group</th><th>Channel</th>
+          <th class="num">Interactions</th><th>Status</th></tr>
+    </thead>
     <tbody>
-    {% for row in report.rows %}
+    {% for row in rows %}
       <tr>
         <td><a href="/u/{{ row.user.uid }}"><code>{{ row.user.uid }}</code></a></td>
-        <td>{{ row.user.full_name or row.user.username or "—" }}</td>
+        <td>{{ row.name }}</td>
+        {% if show_via %}<td class="small"><a href="/u/{{ row.via_uid }}"><code>{{ row.via_uid }}</code></a></td>{% endif %}
         <td class="small muted">{{ row.user.joined_at | ist }}</td>
         <td>{% if row.status.in_group %}✅{% else %}❌{% endif %}</td>
         <td>{% if row.status.in_channel %}✅{% else %}❌{% endif %}</td>
@@ -84,9 +96,16 @@
         <td>{% if row.status.active %}<span class="pill ok">active · ₹{{ '%g' % row.amount }}</span>{% else %}<span class="pill">{{ row.status.reason }}</span>{% endif %}</td>
       </tr>
     {% else %}
-      <tr><td colspan="7" class="muted">No referrals yet.</td></tr>
+      <tr><td colspan="{{ 8 if show_via else 7 }}" class="muted">{{ empty }}</td></tr>
     {% endfor %}
     </tbody>
   </table>
 </div>
+{% endmacro %}
+
+<h2>🥇 Level 1 — invited directly <span class="muted small">₹{{ '%g' % report.rates.level1 }} each</span></h2>
+{{ downline_table(report.level1_rows, "No direct referrals yet.", false) }}
+
+<h2>🥈 Level 2 — invited by their referrals <span class="muted small">₹{{ '%g' % report.rates.level2 }} each</span></h2>
+{{ downline_table(report.level2_rows, "Nobody at level 2 yet.", true) }}
 {% endblock %}

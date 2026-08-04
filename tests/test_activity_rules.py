@@ -47,7 +47,7 @@ def test_activity_is_per_person_per_month_not_per_click(world, month):
 
     report = earnings.report_for(db.get_user(5001), month)
     assert report.active_referrals == 1
-    assert report.amount == earnings.RATE
+    assert report.amount == earnings.rates().level1
     assert earnings.status_for(db.get_user(5002), month).interactions == 1000
 
 
@@ -57,7 +57,7 @@ def test_leaving_either_chat_drops_the_referral_immediately(world, month):
     join_both(5002)
     db.record_activity(5001, "command", "/start")
     db.record_activity(5002, "callback", "tap")
-    assert earnings.report_for(db.get_user(5001), month).amount == earnings.RATE
+    assert earnings.report_for(db.get_user(5001), month).amount == earnings.rates().level1
 
     db.set_membership(5002, -100_2, "channel", "left")
 
@@ -79,7 +79,7 @@ def test_rejoining_restores_the_referral_with_past_interactions(world, month):
 
     db.set_membership(5002, -100_2, "channel", "member")
 
-    assert earnings.report_for(db.get_user(5001), month).amount == earnings.RATE
+    assert earnings.report_for(db.get_user(5001), month).amount == earnings.rates().level1
 
 
 def test_inactive_referrer_earns_nothing_even_with_active_referrals(world, month):
@@ -90,7 +90,7 @@ def test_inactive_referrer_earns_nothing_even_with_active_referrals(world, month
 
     report = earnings.report_for(db.get_user(5001), month)
     assert report.active_referrals == 1
-    assert report.gross == earnings.RATE
+    assert report.gross == earnings.rates().level1
     assert report.payable is False
     assert report.amount == 0
 
@@ -142,7 +142,7 @@ def test_next_month_needs_a_new_interaction(world):
     this_month = current_month()
     next_month = shift_month(this_month, 1)
 
-    assert earnings.report_for(db.get_user(5001), this_month).amount == earnings.RATE
+    assert earnings.report_for(db.get_user(5001), this_month).amount == earnings.rates().level1
     # Memberships carry over, interactions do not.
     assert earnings.report_for(db.get_user(5001), next_month).amount == 0
 

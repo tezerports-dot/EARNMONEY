@@ -23,7 +23,8 @@
   {% block body %}{% endblock %}
 </main>
 <footer class="wrap">
-  <p>Payouts are ₹{{ rate }} per active referred member per month (IST). Membership alone does not count.</p>
+  {% set r = rates() %}
+  <p>Payouts run two levels deep each month (IST): ₹{{ '%g' % r.level1 }} per active member you invited, ₹{{ '%g' % r.level2 }} per active member <i>they</i> invited. Membership alone does not count.</p>
 </footer>
 </body>
 </html>

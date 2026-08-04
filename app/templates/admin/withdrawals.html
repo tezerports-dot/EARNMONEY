@@ -4,8 +4,9 @@
 {% block admin_body %}
 <h1>Withdrawals</h1>
 <p class="sub">
-  {{ month }} — {{ totals.earning_referrers }} referrer(s) with active referrals,
-  {{ totals.active_referred }} active referred user(s), ₹{{ '%g' % totals.total_inr }} payable in total.
+  {{ month }} — {{ totals.earning_referrers }} earner(s),
+  {{ totals.active_referred }} active at level 1 and {{ totals.active_indirect }} at level 2,
+  ₹{{ '%g' % totals.total_inr }} payable in total.
 </p>
 
 <form class="search" method="get" action="/admin/withdrawals">

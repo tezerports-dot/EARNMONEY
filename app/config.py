@@ -85,8 +85,13 @@ class Settings:
     public_base_url: str = field(
         default_factory=lambda: os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
     )
-    payout_per_active: float = field(
-        default_factory=lambda: _float_env("PAYOUT_PER_ACTIVE", 10.0)
+    # Seed values only. Once the database exists the admin panel owns these,
+    # so changing the env afterwards has no effect (same deal as BOT_TOKENS).
+    payout_level1: float = field(
+        default_factory=lambda: _float_env("PAYOUT_LEVEL1", 5.0)
+    )
+    payout_level2: float = field(
+        default_factory=lambda: _float_env("PAYOUT_LEVEL2", 5.0)
     )
     daily_prompt_hour: int = field(
         default_factory=lambda: _int_env("DAILY_PROMPT_HOUR", 10)

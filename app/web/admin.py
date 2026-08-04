@@ -9,6 +9,7 @@ exporting the bank file.
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import quote, unquote
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse, Response
@@ -33,12 +34,21 @@ FLASH_COOKIE = "admin_flash"
 def _redirect(path: str, message: str = "") -> RedirectResponse:
     response = RedirectResponse(url=path, status_code=303)
     if message:
-        response.set_cookie(FLASH_COOKIE, message[:400], max_age=20, path="/")
+        # Cookie values must be latin-1 encodable, and these messages carry
+        # em dashes and ₹ signs, so percent-encode on the way out.
+        response.set_cookie(
+            FLASH_COOKIE, quote(message[:400], safe=""), max_age=20, path="/"
+        )
     return response
 
 
+def _flash_of(request: Request) -> str:
+    raw = request.cookies.get(FLASH_COOKIE, "")
+    return unquote(raw) if raw else ""
+
+
 def _page(request: Request, name: str, **context):
-    context.setdefault("flash", request.cookies.get(FLASH_COOKIE, ""))
+    context.setdefault("flash", _flash_of(request))
     context.setdefault("roles", ROLES)
     # Drives the nav highlight. Set from Python rather than a template-level
     # {% set %}, which does not reliably reach blocks defined in the parent.
@@ -562,6 +572,8 @@ async def export_download(
 # --------------------------------------------------------------------------- #
 
 EDITABLE_SETTINGS = [
+    ("payout_level1", "Level 1 rate — INR per active direct referral", "number"),
+    ("payout_level2", "Level 2 rate — INR per active indirect referral", "number"),
     ("welcome_text", "Welcome message shown before the contact button", "textarea"),
     ("daily_prompt_text", "Daily bank-details reminder", "textarea"),
     ("daily_prompt_dm", "Also DM users who owe bank details (1/0)", "text"),
@@ -589,7 +601,9 @@ async def settings_page(request: Request):
         env={
             "DB_PATH": str(settings.db_path),
             "ADMIN_IDS": ", ".join(str(i) for i in sorted(settings.admin_ids)) or "(none)",
-            "PAYOUT_PER_ACTIVE": f"₹{settings.payout_per_active:g}",
+            "PAYOUT_LEVEL1 / PAYOUT_LEVEL2": (
+                "seed values only — the live rates are the two fields above"
+            ),
             "DAILY_PROMPT_HOUR": f"{settings.daily_prompt_hour:02d}:00 IST",
             "PUBLIC_BASE_URL": settings.public_base_url or "(not set)",
         },
@@ -602,12 +616,36 @@ async def settings_save(request: Request):
     if not auth.is_authenticated(request):
         return auth.login_redirect(request)
     form = await request.form()
-    keys = {key for key, _, _ in EDITABLE_SETTINGS}
+    kinds = {key: kind for key, _, kind in EDITABLE_SETTINGS}
+
+    saved: list[str] = []
+    rejected: list[str] = []
     for key, value in form.items():
-        if key in keys:
-            db.set_setting(key, str(value))
-    db.log_event("settings_updated", None, ",".join(sorted(keys & set(form.keys()))))
-    return _redirect("/admin/settings", "Settings saved.")
+        if key not in kinds:
+            continue
+        text = str(value).strip()
+        if kinds[key] == "number":
+            # A payout rate that silently became 0 — or a string — would quietly
+            # zero out everyone's earnings, so refuse rather than coerce.
+            try:
+                number = float(text)
+            except ValueError:
+                rejected.append(key)
+                continue
+            if number < 0:
+                rejected.append(key)
+                continue
+            text = f"{number:g}"
+        db.set_setting(key, text)
+        saved.append(key)
+
+    db.log_event("settings_updated", None, ",".join(sorted(saved)))
+    message = "Settings saved."
+    if rejected:
+        message += (
+            f" Ignored {', '.join(sorted(rejected))} — must be a number of 0 or more."
+        )
+    return _redirect("/admin/settings", message)
 
 
 @router.post("/notify-test")
