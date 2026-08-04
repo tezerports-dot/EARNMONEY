@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ site_name }}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/">{{ site_name }}</a>
+    <nav>
+      {% block nav %}
+      <a href="/">Search</a>
+      <a href="/leaderboard">Leaderboard</a>
+      <a href="/how-it-works">How it works</a>
+      {% endblock %}
+    </nav>
+  </div>
+</header>
+<main class="wrap">
+  {% block body %}{% endblock %}
+</main>
+<footer class="wrap">
+  {% set r = rates() %}
+  <p>Payouts run two levels deep each month (IST): ₹{{ '%g' % r.level1 }} per active member you invited, ₹{{ '%g' % r.level2 }} per active member <i>they</i> invited. Membership alone does not count.</p>
+</footer>
+</body>
+</html>

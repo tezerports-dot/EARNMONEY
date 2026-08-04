@@ -1,0 +1,113 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ user.uid }} — admin{% endblock %}
+
+{% block admin_body %}
+{% set st = report.referrer_status %}
+<h1>{{ user.uid }}</h1>
+<p class="sub">
+  Telegram id <code>{{ user.id }}</code> · joined {{ user.joined_at | ist }} ·
+  <a href="/u/{{ user.uid }}">public page</a>
+</p>
+
+<div class="row">
+  {% if st.banned %}
+    <form class="inline shrink" method="post" action="/admin/users/{{ user.id }}/unban"><button class="small" type="submit">Unban everywhere</button></form>
+  {% else %}
+    <form class="inline shrink" method="post" action="/admin/users/{{ user.id }}/ban"
+          onsubmit="return confirm('Ban this user from every managed chat?');">
+      <button class="danger small" type="submit">Ban everywhere</button>
+    </form>
+  {% endif %}
+  <form class="inline shrink" method="post" action="/admin/users/{{ user.id }}/duplicate">
+    <input type="hidden" name="value" value="{{ 0 if st.duplicate else 1 }}">
+    <button class="ghost small" type="submit">{% if st.duplicate %}Clear duplicate flag{% else %}Mark as duplicate{% endif %}</button>
+  </form>
+  <form class="inline shrink" method="get" action="/admin/users/{{ user.uid }}">
+    <select name="month">{% for m in months %}<option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ m }}</option>{% endfor %}</select>
+    <button class="ghost small" type="submit">Month</button>
+  </form>
+</div>
+
+<div class="grid cols-4" style="margin-top:16px;">
+  <div class="stat">
+    <div class="n">{{ report.active_referrals }}<span class="muted" style="font-size:16px;">/{{ report.total_referrals }}</span></div>
+    <div class="k">🥇 level 1 active · ₹{{ '%g' % report.level1_amount }}</div>
+  </div>
+  <div class="stat">
+    <div class="n">{{ report.active_indirect }}<span class="muted" style="font-size:16px;">/{{ report.total_indirect }}</span></div>
+    <div class="k">🥈 level 2 active · ₹{{ '%g' % report.level2_amount }}</div>
+  </div>
+  <div class="stat"><div class="n">{% if st.has_interaction %}✅{% else %}❌{% endif %}</div><div class="k">interacted in {{ month }}</div></div>
+  <div class="stat"><div class="n">₹{{ '%g' % report.amount }}</div><div class="k">payable</div></div>
+</div>
+
+<div class="grid cols-2">
+  <div class="card">
+    <h3>Account</h3>
+    <table>
+      <tr><td>Verified</td><td>{% if st.verified %}<span class="pill ok">yes</span>{% else %}<span class="pill warn">no</span>{% endif %}</td></tr>
+      <tr><td>Duplicate</td><td>{% if st.duplicate %}<span class="pill bad">yes</span>{% else %}no{% endif %}</td></tr>
+      <tr><td>Banned</td><td>{% if st.banned %}<span class="pill bad">yes</span>{% else %}no{% endif %}</td></tr>
+      <tr><td>Phone on file</td><td>{% if user.phone_hash %}<span class="pill ok">hashed</span> <span class="muted small">number never stored</span>{% else %}—{% endif %}</td></tr>
+      <tr><td>Referred by</td><td>{% if user.referred_by %}<a href="/admin/users/{{ user.referred_by }}">{{ user.referred_by }}</a>{% else %}—{% endif %}</td></tr>
+      <tr><td>Pair</td><td>{% if pair %}{{ pair.title or pair.pair_id }}{% else %}<span class="pill warn">unplaced</span>{% endif %}</td></tr>
+      <tr><td>In their group</td><td>{% if st.in_group %}<span class="pill ok">member</span>{% else %}<span class="pill bad">no</span>{% endif %}</td></tr>
+      <tr><td>In their channel</td><td>{% if st.in_channel %}<span class="pill ok">member</span>{% else %}<span class="pill bad">no</span>{% endif %}</td></tr>
+      <tr><td>Eligible in {{ month }}</td><td>{% if st.active %}<span class="pill ok">yes</span>{% else %}<span class="pill bad">{{ st.reason }}</span>{% endif %}</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Bank details</h3>
+    {% if bank %}
+      <table>
+        <tr><td>Name</td><td>{{ bank.full_name }}</td></tr>
+        <tr><td>Account</td><td class="mono">{{ bank.account_number }}</td></tr>
+        <tr><td>IFSC</td><td class="mono">{{ bank.ifsc }}</td></tr>
+        <tr><td>UPI</td><td class="mono">{{ bank.upi_id }}</td></tr>
+        <tr><td>Submitted</td><td class="small muted">{{ bank.submitted_at | ist }}</td></tr>
+      </table>
+      <p class="small muted">Fixed to this ID once submitted — the bot has no update path, so the destination of a payout cannot be changed later.</p>
+    {% else %}
+      <p class="muted small">Not submitted yet. The collector bot asks daily.</p>
+    {% endif %}
+  </div>
+</div>
+
+<h2>Downline in {{ month }}</h2>
+<p class="sub small">Level 1 pays ₹{{ '%g' % report.rates.level1 }} per active member, level 2 pays ₹{{ '%g' % report.rates.level2 }}. <a href="/admin/settings">Change the rates</a>.</p>
+<div class="card table-scroll">
+  <table>
+    <thead><tr><th>Level</th><th>ID</th><th>Invited by</th><th>Group</th><th>Channel</th><th>Interacted</th><th>Counts</th></tr></thead>
+    <tbody>
+    {% for row in report.level1_rows + report.level2_rows %}
+      <tr>
+        <td>{% if row.level == 1 %}<span class="pill ok">🥇 L1</span>{% else %}<span class="pill info">🥈 L2</span>{% endif %}</td>
+        <td><a href="/admin/users/{{ row.user.uid }}"><code>{{ row.user.uid }}</code></a></td>
+        <td class="small">{% if row.via_uid %}<a href="/admin/users/{{ row.via_uid }}"><code>{{ row.via_uid }}</code></a>{% else %}<span class="muted">direct</span>{% endif %}</td>
+        <td>{% if row.status.in_group %}✅{% else %}❌{% endif %}</td>
+        <td>{% if row.status.in_channel %}✅{% else %}❌{% endif %}</td>
+        <td>{% if row.status.has_interaction %}✅{% else %}❌{% endif %}</td>
+        <td>{% if row.status.active %}<span class="pill ok">₹{{ '%g' % row.amount }}</span>{% else %}<span class="pill">{{ row.status.reason }}</span>{% endif %}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" class="muted">No downline.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card table-scroll">
+  <h3>Audit log</h3>
+  <table>
+    <thead><tr><th>When</th><th>Event</th><th>Detail</th></tr></thead>
+    <tbody>
+    {% for event in events %}
+      <tr><td class="small muted">{{ event.ts | ist }}</td><td><span class="pill">{{ event.event_type }}</span></td><td class="small">{{ event.payload }}</td></tr>
+    {% else %}
+      <tr><td colspan="3" class="muted">Nothing logged.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
