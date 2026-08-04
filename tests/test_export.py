@@ -16,8 +16,8 @@ def _prepare(world) -> str:
     month = current_month()
     join_both(5001)
     join_both(5002)
-    db.record_activity(5001, "command", "/start")
-    db.record_activity(5002, "callback", "tap")
+    db.record_activity(5001)
+    db.record_activity(5002)
     db.save_bank_details(5001, "Alice Example", "0012345678901234", "HDFC0001234", "alice@okhdfc")
     db.create_withdrawal(5001, month, 10.0)
     return month

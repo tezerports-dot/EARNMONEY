@@ -20,14 +20,14 @@ router.message.filter(F.chat.type == ChatType.PRIVATE)
 
 
 def _require_verified(user) -> str | None:
-    if user is None or not user["verified"]:
+    if user is None or not db.has_flag(user, db.F_VERIFIED):
         return (
             "You are not verified yet. Send /start and tap the button — it "
             "takes one step."
         )
-    if user["duplicate"]:
+    if db.has_flag(user, db.F_DUPLICATE):
         return "🚫 This account is flagged as a duplicate and cannot earn."
-    if user["banned"]:
+    if db.has_flag(user, db.F_BANNED):
         return "🚫 This account is blocked."
     return None
 
@@ -37,15 +37,12 @@ def _breakdown_lines(rows, limit: int) -> list[str]:
     for row in rows[:limit]:
         mark = "✅" if row.status.active else "❌"
         detail = (
-            f"{row.status.interactions} interaction(s) · ₹{row.amount:g}"
+            f"active · ₹{row.amount:g}"
             if row.status.active
             else row.status.reason
         )
         via = f" · via {esc(row.via_uid)}" if row.via_uid else ""
-        out.append(
-            f"{mark} {esc(row.name)} — <code>{esc(row.user['uid'])}</code> · "
-            f"{esc(detail)}{via}"
-        )
+        out.append(f"{mark} <code>{esc(row.user['uid'])}</code> · {esc(detail)}{via}")
     if len(rows) > limit:
         out.append(f"… and {len(rows) - limit} more")
     return out
@@ -141,7 +138,7 @@ async def cb_referrals(callback: CallbackQuery) -> None:
             mark = "✅" if row.status.active else "❌"
             via = f" · via {esc(row.via_uid)}" if row.via_uid else ""
             lines.append(
-                f"{mark} {esc(row.name)} · <code>{esc(row.user['uid'])}</code> · "
+                f"{mark} <code>{esc(row.user['uid'])}</code> · "
                 f"joined {esc(human_ist(row.user['joined_at']))}{via}"
             )
         if len(rows) > 40:
@@ -253,6 +250,6 @@ async def cmd_status(message: Message, bot: Bot) -> None:
         f"📊 <b>Status — {esc(st.month)}</b>\n\n"
         f"In your group: {'✅' if st.in_group else '❌'}\n"
         f"In your channel: {'✅' if st.in_channel else '❌'}\n"
-        f"Interactions this month: <b>{st.interactions}</b>\n"
+        f"Interacted this month: {'✅ yes' if st.has_interaction else '❌ not yet'}\n"
         f"Counted as active: {'✅ yes' if st.active else '❌ no — ' + esc(st.reason)}"
     )

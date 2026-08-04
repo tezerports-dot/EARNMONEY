@@ -117,10 +117,10 @@ async def watch_group(message: Message, bot: Bot) -> None:
     user = ensure_user(message.from_user)
     user_id = int(user["id"])
 
-    if user["banned"] or user["duplicate"]:
+    if db.has_flag(user, db.F_BANNED) or db.has_flag(user, db.F_DUPLICATE):
         await call_api(bot.delete_message, chat_id=message.chat.id, message_id=message.message_id)
         await call_api(bot.ban_chat_member, chat_id=message.chat.id, user_id=user_id)
-        db.set_membership(user_id, message.chat.id, "group", "banned")
+        db.set_membership(user_id, message.chat.id, False)
         return
 
     if await _is_chat_admin(bot, message.chat.id, user_id):
@@ -137,7 +137,7 @@ async def watch_group(message: Message, bot: Bot) -> None:
 
     if (
         db.get_setting_bool("block_links_from_unverified", True)
-        and not user["verified"]
+        and not db.has_flag(user, db.F_VERIFIED)
         and (LINK_RE.search(text) or message.forward_origin is not None)
     ):
         await call_api(bot.delete_message, chat_id=message.chat.id, message_id=message.message_id)
@@ -177,9 +177,9 @@ def _target_id(message: Message, command: CommandObject) -> int | None:
         row = db.get_user_by_uid(uid)
         if row is not None:
             return int(row["id"])
-    handle = arg.lstrip("@").lower()
-    row = db.query_one("SELECT id FROM users WHERE LOWER(username) = ?", (handle,))
-    return int(row["id"]) if row else None
+    # Usernames are not stored, so a @handle cannot be resolved here — reply
+     # to the person or use their UID instead.
+    return None
 
 
 async def _guard(message: Message, bot: Bot) -> bool:
@@ -304,13 +304,14 @@ async def cmd_whois(message: Message, command: CommandObject, bot: Bot) -> None:
     await message.reply(
         f"🆔 <code>{esc(user['uid'])}</code>\n"
         f"Telegram id: <code>{user['id']}</code>\n"
-        f"Verified: {'yes' if user['verified'] else 'no'} · "
-        f"Duplicate: {'yes' if user['duplicate'] else 'no'} · "
-        f"Banned: {'yes' if user['banned'] else 'no'}\n"
-        f"Referred by: {esc(user['referred_by_uid'] or '-')}\n"
-        f"Messages: {user['message_count']} · Warnings here: "
-        f"{db.warning_count(int(user['id']), message.chat.id)}\n"
-        f"This month: {st.interactions} interaction(s) — {esc(st.reason)}"
+        f"Verified: {'yes' if st.verified else 'no'} · "
+        f"Duplicate: {'yes' if st.duplicate else 'no'} · "
+        f"Banned: {'yes' if st.banned else 'no'}\n"
+        f"Referred by: {esc(user['referred_by'] or '-')}\n"
+        f"In group: {'yes' if st.in_group else 'no'} · "
+        f"In channel: {'yes' if st.in_channel else 'no'}\n"
+        f"Warnings here: {db.warning_count(int(user['id']), message.chat.id)}\n"
+        f"This month: {esc(st.reason)}"
     )
 
 

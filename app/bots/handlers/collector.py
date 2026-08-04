@@ -86,8 +86,7 @@ async def cmd_pending(message: Message) -> None:
     if pending:
         lines.append("")
         for user in pending[:25]:
-            name = user["full_name"] or user["username"] or user["id"]
-            lines.append(f"• {esc(name)} — <code>{esc(user['uid'])}</code>")
+            lines.append(f"• <code>{esc(user['uid'])}</code>")
         if len(pending) > 25:
             lines.append(f"… and {len(pending) - 25} more")
     await message.answer("\n".join(lines))

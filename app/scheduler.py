@@ -28,6 +28,22 @@ log = logging.getLogger("scheduler")
 async def _run_daily_jobs() -> None:
     today_month = current_month()
 
+    # The audit log and the warning counters are the only tables that would
+    # otherwise grow without bound; everything else is one row per user.
+    try:
+        pruned = db.prune_events() + db.prune_warnings()
+        if pruned:
+            log.info("pruned %d stale rows", pruned)
+    except Exception:  # noqa: BLE001
+        log.exception("pruning failed")
+
+    # Refresh the cached dashboard aggregates. Below LIVE_AGGREGATE_LIMIT the
+    # panel computes them live anyway and this is just a cheap no-op.
+    try:
+        db.refresh_snapshots()
+    except Exception:  # noqa: BLE001
+        log.exception("snapshot refresh failed")
+
     try:
         result = await daily_bank_prompt()
         log.info("daily prompt: %s", result)

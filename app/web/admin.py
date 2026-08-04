@@ -22,7 +22,7 @@ from app.config import settings
 from app.earnings import month_totals, report_for, status_for
 from app.ids import normalise_uid
 from app.roles import ROLES
-from app.timeutil import current_month, recent_months
+from app.timeutil import current_month
 from app.web import auth
 from app.web.templating import render
 
@@ -47,6 +47,18 @@ def _flash_of(request: Request) -> str:
     return unquote(raw) if raw else ""
 
 
+def _safe_next(target: str) -> str:
+    """Only ever redirect back inside the admin panel.
+
+    ``next`` comes from the query string, so without this a crafted login link
+    could bounce an authenticated admin to an attacker's page.
+    """
+    candidate = (target or "").strip()
+    if not candidate.startswith("/admin") or candidate.startswith("//"):
+        return "/admin"
+    return candidate
+
+
 def _page(request: Request, name: str, **context):
     context.setdefault("flash", _flash_of(request))
     context.setdefault("roles", ROLES)
@@ -66,19 +78,32 @@ def _page(request: Request, name: str, **context):
 @router.get("/login")
 async def login_form(request: Request, next: str = "/admin"):
     if auth.is_authenticated(request):
-        return RedirectResponse(url=next or "/admin", status_code=303)
-    return render(request, "admin/login.html", error="", next=next)
+        return RedirectResponse(url=_safe_next(next), status_code=303)
+    return render(request, "admin/login.html", error="", next=_safe_next(next))
 
 
 @router.post("/login")
 async def login_submit(
     request: Request, token: str = Form(...), next: str = Form("/admin")
 ):
-    if not auth.check_password(token):
+    wait = auth.is_locked_out(request)
+    if wait:
         return render(
-            request, "admin/login.html", error="Wrong token.", next=next or "/admin"
+            request,
+            "admin/login.html",
+            error=f"Too many failed attempts. Try again in {wait} seconds.",
+            next=_safe_next(next),
         )
-    response = RedirectResponse(url=next or "/admin", status_code=303)
+    if not auth.check_password(token):
+        auth.record_failure(request)
+        db.log_event("admin_login_failed", None, auth.client_key(request))
+        return render(
+            request, "admin/login.html", error="Wrong token.", next=_safe_next(next)
+        )
+
+    auth.clear_failures(request)
+    db.log_event("admin_login", None, auth.client_key(request))
+    response = RedirectResponse(url=_safe_next(next), status_code=303)
     auth.set_session(response)
     return response
 
@@ -208,7 +233,7 @@ async def chats_page(request: Request):
         chats=db.list_chats(),
         pairs=db.list_pairs(),
         bots=db.list_bots(),
-        loads=db.pair_load(),
+        loads={p['pair_id']: p['member_count'] for p in db.list_pairs()},
     )
 
 
@@ -345,7 +370,7 @@ async def users_page(request: Request, q: str = "", page: int = 1, month: str = 
         page=page,
         per_page=per_page,
         month=month,
-        months=recent_months(6),
+        months=db.activity_horizon(),
         total=db.count_users(),
     )
 
@@ -364,13 +389,11 @@ async def user_detail(request: Request, uid: str, month: str = ""):
         "admin/user_detail.html",
         user=user,
         report=report_for(user, month),
-        memberships=db.memberships_of(int(user["id"])),
-        activity=db.activity_rows(user_id=int(user["id"]), limit=50),
         bank=db.get_bank_details(int(user["id"])),
         events=db.recent_events(30, user_id=int(user["id"])),
         pair=db.get_pair(int(user["pair_id"])) if user["pair_id"] else None,
         month=month,
-        months=recent_months(6),
+        months=db.activity_horizon(),
     )
 
 
@@ -399,7 +422,7 @@ async def user_unban(request: Request, user_id: int):
 async def user_duplicate(request: Request, user_id: int, value: int = Form(1)):
     if not auth.is_authenticated(request):
         return auth.login_redirect(request)
-    db.set_user_fields(user_id, duplicate=1 if value else 0)
+    db.set_flags(user_id, duplicate=bool(value))
     db.log_event("duplicate_flag", user_id, f"value={value}")
     if value:
         await ban_everywhere(user_id, reason="marked duplicate in admin panel")
@@ -413,28 +436,35 @@ async def user_duplicate(request: Request, user_id: int, value: int = Form(1)):
 # --------------------------------------------------------------------------- #
 
 @router.get("/activity")
-async def activity_page(
-    request: Request, uid: str = "", month: str = "", kind: str = ""
-):
+async def activity_page(request: Request, uid: str = "", month: str = ""):
+    """Activity is a per-user-per-month fact, so this looks one up.
+
+    There is no scrollable interaction log to browse: individual taps are
+    never stored, which is exactly what keeps the database small.
+    """
     if not auth.is_authenticated(request):
         return auth.login_redirect(request)
     month = month or current_month()
-    user_id = None
+
+    looked_up = None
+    status = None
     canonical = normalise_uid(uid) if uid else None
     if canonical:
-        user = db.get_user_by_uid(canonical)
-        user_id = int(user["id"]) if user else -1
+        looked_up = db.get_user_by_uid(canonical)
+        if looked_up is not None:
+            status = status_for(looked_up, month)
+
     return _page(
         request,
         "admin/activity.html",
-        rows=db.activity_rows(
-            user_id=user_id, month=month, activity_type=kind or None, limit=300
-        ),
         uid=uid,
+        canonical=canonical,
+        user=looked_up,
+        status=status,
         month=month,
-        months=recent_months(12),
-        kind=kind,
-        kinds=["command", "callback", "group_message", "poll_answer", "dm"],
+        months=db.activity_horizon(),
+        active_now=db.active_user_count(month),
+        verified=db.count_users("(flags & ?) = ?", (db.F_VERIFIED, db.F_VERIFIED)),
     )
 
 

@@ -45,7 +45,7 @@ import sqlite3
 from dataclasses import dataclass
 
 from app import db
-from app.timeutil import current_month
+from app.timeutil import current_month, month_to_int
 
 LEVEL1 = 1
 LEVEL2 = 2
@@ -83,14 +83,20 @@ class ActivityStatus:
     month: str
     in_group: bool
     in_channel: bool
-    interactions: int
+    interacted: bool
     verified: bool
     duplicate: bool
     banned: bool
 
     @property
     def has_interaction(self) -> bool:
-        return self.interactions > 0
+        """Did they interact at all that month?
+
+        A boolean, not a count: the rule only ever asks *whether*, and storing
+        a per-tap counter would mean writing on every button press for no
+        change in anyone's payout.
+        """
+        return self.interacted
 
     @property
     def eligible(self) -> bool:
@@ -120,36 +126,30 @@ class ActivityStatus:
             missing.append("no interaction this month")
         return ", ".join(missing) if missing else "active"
 
-
-def _pair_chat_ids(user: sqlite3.Row) -> tuple[int | None, int | None]:
-    pair_id = user["pair_id"]
-    if not pair_id:
-        return None, None
-    pair = db.get_pair(int(pair_id))
-    if pair is None:
-        return None, None
-    group_id = pair["group_chat_id"]
-    channel_id = pair["channel_chat_id"]
-    return (
-        int(group_id) if group_id else None,
-        int(channel_id) if channel_id else None,
-    )
+    @property
+    def out_of_horizon(self) -> bool:
+        """True when the month is older than the two we keep activity for."""
+        return self.month not in db.activity_horizon()
 
 
 def status_for(user: sqlite3.Row, month: str | None = None) -> ActivityStatus:
-    """Evaluate the three activity conditions for one user in one month."""
+    """Evaluate the three activity conditions for one user in one month.
+
+    Every input is a column on the user's own row — the two membership bits
+    and the two month markers — so this is one row read, no joins, whether
+    there are ten users or thirty million.
+    """
     month = month or current_month()
-    group_id, channel_id = _pair_chat_ids(user)
     return ActivityStatus(
         user_id=int(user["id"]),
         uid=str(user["uid"]),
         month=month,
-        in_group=db.is_member(int(user["id"]), group_id),
-        in_channel=db.is_member(int(user["id"]), channel_id),
-        interactions=db.activity_count(int(user["id"]), month),
-        verified=bool(user["verified"]),
-        duplicate=bool(user["duplicate"]),
-        banned=bool(user["banned"]),
+        in_group=db.has_flag(user, db.F_IN_GROUP),
+        in_channel=db.has_flag(user, db.F_IN_CHANNEL),
+        interacted=db.was_active_in(user, month),
+        verified=db.has_flag(user, db.F_VERIFIED),
+        duplicate=db.has_flag(user, db.F_DUPLICATE),
+        banned=db.has_flag(user, db.F_BANNED),
     )
 
 
@@ -179,18 +179,30 @@ class DownlineRow:
 
     @property
     def name(self) -> str:
-        return str(
-            self.user["full_name"] or self.user["username"] or self.user["uid"]
-        )
+        """Display label. Names are not stored, so the UID *is* the name."""
+        return str(self.user["uid"])
 
 
 @dataclass(frozen=True)
 class EarningsReport:
+    """What one member earns, and the downline it came from.
+
+    The counts and the money come from SQL aggregates, not from ``rows``:
+    ``rows`` is a *display* sample capped at :data:`ROW_LIMIT`, so a member
+    with a hundred thousand referrals is still paid exactly right while the
+    page renders the first page of them.
+    """
+
     uid: str
     month: str
     referrer_status: ActivityStatus
     rows: list[DownlineRow]
     rates: Rates
+    total_referrals: int
+    total_indirect: int
+    active_referrals: int
+    active_indirect: int
+    truncated: bool = False
 
     # -- level 1 (direct) --------------------------------------------------- #
 
@@ -199,20 +211,12 @@ class EarningsReport:
         return [row for row in self.rows if row.level == LEVEL1]
 
     @property
-    def total_referrals(self) -> int:
-        return len(self.level1_rows)
-
-    @property
-    def active_referrals(self) -> int:
-        return sum(1 for row in self.level1_rows if row.status.active)
-
-    @property
     def inactive_referrals(self) -> int:
         return self.total_referrals - self.active_referrals
 
     @property
     def level1_amount(self) -> float:
-        return round(sum(row.amount for row in self.level1_rows), 2)
+        return round(self.active_referrals * self.rates.level1, 2)
 
     # -- level 2 (indirect) ------------------------------------------------- #
 
@@ -221,26 +225,18 @@ class EarningsReport:
         return [row for row in self.rows if row.level == LEVEL2]
 
     @property
-    def total_indirect(self) -> int:
-        return len(self.level2_rows)
-
-    @property
-    def active_indirect(self) -> int:
-        return sum(1 for row in self.level2_rows if row.status.active)
-
-    @property
     def inactive_indirect(self) -> int:
         return self.total_indirect - self.active_indirect
 
     @property
     def level2_amount(self) -> float:
-        return round(sum(row.amount for row in self.level2_rows), 2)
+        return round(self.active_indirect * self.rates.level2, 2)
 
     # -- totals ------------------------------------------------------------- #
 
     @property
     def total_downline(self) -> int:
-        return len(self.rows)
+        return self.total_referrals + self.total_indirect
 
     @property
     def active_downline(self) -> int:
@@ -265,29 +261,31 @@ class EarningsReport:
         return "" if self.payable else self.referrer_status.reason
 
 
-def report_for(user: sqlite3.Row, month: str | None = None) -> EarningsReport:
+ROW_LIMIT = 250  # per level, for display only — never used for the payout
+
+
+def report_for(
+    user: sqlite3.Row, month: str | None = None, row_limit: int = ROW_LIMIT
+) -> EarningsReport:
     month = month or current_month()
     uid = str(user["uid"])
     current = rates()
 
+    total1, total2 = db.count_downline(uid)
+    active1, active2 = db.count_active_downline(uid, month)
+
+    level1 = db.referrals_of(uid, limit=row_limit)
+    level2 = db.level2_referrals_of(uid, limit=row_limit)
+
     rows = [
-        DownlineRow(
-            user=row,
-            status=status_for(row, month),
-            level=LEVEL1,
-            rate=current.level1,
-        )
-        for row in db.referrals_of(uid)
+        DownlineRow(user=row, status=status_for(row, month), level=LEVEL1,
+                    rate=current.level1)
+        for row in level1
     ]
     rows += [
-        DownlineRow(
-            user=row,
-            status=status_for(row, month),
-            level=LEVEL2,
-            rate=current.level2,
-            via_uid=str(row["via_uid"]),
-        )
-        for row in db.level2_referrals_of(uid)
+        DownlineRow(user=row, status=status_for(row, month), level=LEVEL2,
+                    rate=current.level2, via_uid=str(row["via_uid"]))
+        for row in level2
     ]
 
     return EarningsReport(
@@ -296,6 +294,11 @@ def report_for(user: sqlite3.Row, month: str | None = None) -> EarningsReport:
         referrer_status=status_for(user, month),
         rows=rows,
         rates=current,
+        total_referrals=total1,
+        total_indirect=total2,
+        active_referrals=active1,
+        active_indirect=active2,
+        truncated=len(level1) < total1 or len(level2) < total2,
     )
 
 
@@ -308,45 +311,146 @@ def amount_for(user: sqlite3.Row, month: str | None = None) -> float:
     return report_for(user, month).amount
 
 
-def _earner_candidates() -> list[str]:
-    """UIDs that could possibly earn: anyone with at least one direct referral.
+@dataclass(frozen=True)
+class Standing:
+    """One earner's position, built from aggregates rather than full reports."""
 
-    Level 2 always has a level-1 member in between, so nobody outside this set
-    can have downline income.
-    """
-    return [
-        str(row["referred_by_uid"])
-        for row in db.query(
-            "SELECT DISTINCT referred_by_uid FROM users WHERE referred_by_uid IS NOT NULL"
+    uid: str
+    active_referrals: int
+    active_indirect: int
+    rates: Rates
+    payable: bool
+
+    @property
+    def total_referrals(self) -> int:  # kept for template compatibility
+        return self.active_referrals
+
+    @property
+    def total_indirect(self) -> int:
+        return self.active_indirect
+
+    @property
+    def gross(self) -> float:
+        return round(
+            self.active_referrals * self.rates.level1
+            + self.active_indirect * self.rates.level2,
+            2,
         )
+
+    @property
+    def amount(self) -> float:
+        return self.gross if self.payable else 0.0
+
+    @property
+    def active_downline(self) -> int:
+        return self.active_referrals + self.active_indirect
+
+
+def standings(month: str | None = None, limit: int | None = None) -> list[Standing]:
+    """The top earners for a month, ranked, in a single query.
+
+    Both levels, the counts and each earner's own eligibility come out of one
+    grouped scan — never a query per member. ``limit`` is applied in SQL, so
+    asking for the top 50 out of thirty million costs the scan and nothing
+    more.
+    """
+    month = month or current_month()
+    current = rates()
+    return [
+        Standing(
+            uid=str(row["uid"]),
+            active_referrals=int(row["l1"]),
+            active_indirect=int(row["l2"]),
+            rates=current,
+            payable=(
+                (int(row["flags"] or 0) & db.COUNTABLE_MASK) == db.COUNTABLE_VALUE
+                and month_to_int(month) in (row["active_month"], row["prev_month"])
+            ),
+        )
+        for row in db.standings_rows(month, current.level1, current.level2, limit)
+    ]
+
+
+BOARD_CACHE_SIZE = 50
+
+
+def compute_board(month: str) -> list[dict[str, object]]:
+    """Top earners as plain data, so it can be snapshotted as JSON."""
+    return [
+        {
+            "uid": item.uid,
+            "l1": item.active_referrals,
+            "l2": item.active_indirect,
+            "payable": item.payable,
+        }
+        for item in standings(month, limit=BOARD_CACHE_SIZE)
     ]
 
 
 def leaderboard(
     month: str | None = None, limit: int = 20
-) -> list[tuple[sqlite3.Row, EarningsReport]]:
-    """``(user, report)`` for the top earners, best first."""
+) -> list[tuple[sqlite3.Row, Standing]]:
+    """``(user, standing)`` for the top earners, best first.
+
+    Live below :data:`db.LIVE_AGGREGATE_LIMIT`; above it, served from the
+    snapshot the daily job refreshes — the ranking is a scan of the whole
+    member base and does not need to be second-fresh.
+    """
     month = month or current_month()
-    out: list[tuple[sqlite3.Row, EarningsReport]] = []
-    for uid in _earner_candidates():
-        user = db.get_user_by_uid(uid)
+    current = rates()
+
+    if month != current_month() or db.aggregates_are_live():
+        board = compute_board(month)
+    else:
+        board, _ = db.cached_snapshot("board_cache", lambda: compute_board(month))
+
+    out: list[tuple[sqlite3.Row, Standing]] = []
+    for entry in board[:limit]:
+        user = db.get_user_by_uid(str(entry["uid"]))
         if user is None:
             continue
-        report = report_for(user, month)
-        if report.active_downline:
-            out.append((user, report))
-    out.sort(key=lambda item: (-item[1].gross, -item[1].active_downline, item[0]["uid"]))
-    return out[:limit]
+        out.append(
+            (
+                user,
+                Standing(
+                    uid=str(entry["uid"]),
+                    active_referrals=int(entry["l1"]),
+                    active_indirect=int(entry["l2"]),
+                    rates=current,
+                    payable=bool(entry["payable"]),
+                ),
+            )
+        )
+    return out
+
+
+def compute_month_totals(month: str | None = None) -> dict[str, float | int | str]:
+    """Fleet-wide totals, computed entirely in SQL."""
+    month = month or current_month()
+    current = rates()
+    totals = db.standings_totals(month, current.level1, current.level2)
+    return {
+        "month": month,
+        "earning_referrers": totals["earners"],
+        "active_referred": totals["a1"],
+        "active_indirect": totals["a2"],
+        "active_downline": totals["a1"] + totals["a2"],
+        "total_inr": round(totals["payable"], 2),
+    }
 
 
 def month_totals(month: str | None = None) -> dict[str, float | int | str]:
+    """Totals for the dashboard — live when cheap, snapshotted when not.
+
+    Only the current month is snapshotted; asking for a past month always
+    computes, because that happens once at payout time rather than on every
+    page view.
+    """
     month = month or current_month()
-    board = leaderboard(month, limit=10_000)
-    return {
-        "month": month,
-        "earning_referrers": len(board),
-        "active_referred": sum(report.active_referrals for _, report in board),
-        "active_indirect": sum(report.active_indirect for _, report in board),
-        "active_downline": sum(report.active_downline for _, report in board),
-        "total_inr": round(sum(report.amount for _, report in board), 2),
-    }
+    if month != current_month() or db.aggregates_are_live():
+        return compute_month_totals(month)
+    value, taken = db.cached_snapshot(
+        "totals_cache", lambda: compute_month_totals(month)
+    )
+    value["snapshot_at"] = taken
+    return value

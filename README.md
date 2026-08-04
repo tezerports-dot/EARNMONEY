@@ -19,6 +19,17 @@ panel. One process, SQLite, no docker.
   into every managed chat.
 * **Bank-ready exports.** Monthly CSV or `.xlsx` with Full Name, Account
   Number, IFSC, UPI ID, Amount (INR).
+* **187 bytes per member, measured.** 30 million members fit in 5.6 GB — see
+  [docs/SCALING.md](docs/SCALING.md).
+
+### Guides
+
+| | |
+|---|---|
+| **[docs/SETUP.md](docs/SETUP.md)** | Step by step from nothing to live, written for a non-coder. Start here. |
+| **[docs/MANAGEMENT.md](docs/MANAGEMENT.md)** | Running it: payouts, broadcasts, moderation, backups. |
+| **[docs/SCALING.md](docs/SCALING.md)** | What is stored and why, measured limits, the path to multiple servers. |
+| **[ARCHITECTURE.md](ARCHITECTURE.md)** | How each requirement maps to code. |
 
 ---
 
@@ -101,12 +112,16 @@ Each registered token has exactly one role, which decides its routers.
 | `collector` | Posts the bank-details reminder in every managed chat once a day and DMs everyone still missing theirs, one at a time. |
 | `broadcast` | Anything an owner sends it in private is copied into every managed group and channel. `/poll`, `/say`, `/targets`, `/confirm on\|off`. |
 
-Every bot, whatever its role, keeps the `memberships` table accurate for the
-chats it administers.
+Every bot, whatever its role, keeps membership state accurate for the chats it
+administers.
 
 ---
 
 ## Install on Oracle Cloud Free Tier (Ampere A1, Ubuntu 24.04, ARM64)
+
+> **Never done this before?** Use [docs/SETUP.md](docs/SETUP.md) instead — it
+> covers the same ground with every click spelled out. The summary below
+> assumes you are comfortable on a server.
 
 ### 1. Create the instance
 
@@ -179,6 +194,7 @@ sudo nano /opt/referral/.env
 | `BOT_TOKENS` | Seed tokens as `role:token`, comma separated. Only read on first boot — after that the database is the source of truth. |
 | `PUBLIC_BASE_URL` | e.g. `https://referral.example.com`. Used in bot messages, and switches the admin cookie to `Secure`. |
 | `PAYOUT_LEVEL1` / `PAYOUT_LEVEL2` | Default `5` and `5`. Seed values only — once the database exists, the admin panel owns the rates. |
+| `DAILY_PROMPT_HOUR` | IST hour for the daily bank-details sweep. Default `10`. |
 | `DAILY_PROMPT_HOUR` | IST hour for the daily bank-details sweep. Default `10`. |
 
 Then set `server_name` in `/etc/nginx/sites-available/referral` and:
@@ -260,7 +276,8 @@ app/
     auth.py          signed-cookie admin session
   templates/  static/
 deploy/              systemd unit, nginx site, install.sh
-tests/               96 tests, no network needed
+tests/               122 tests, no network needed
+scripts/benchmark.py measures bytes/member and query timings
 ```
 
 ## Development
@@ -285,5 +302,9 @@ and which API limits it works around.
 * **Backups.** `sqlite3 /opt/referral/data/referral.db ".backup /tmp/backup.db"`
   is safe while the service runs. Copy it off the box on a schedule.
 * **Logs.** `journalctl -u referral -f`.
-* **Phone numbers are never stored.** Only a SHA-256 hash, used solely to stop
-  one person holding two accounts. It is never displayed or exported.
+* **Phone numbers are never stored.** Only a truncated SHA-256, used solely to
+  stop one person holding two accounts. Never displayed, never exported.
+* **Only what a payout needs is kept.** No interaction log, no membership
+  table, no usernames or display names. See
+  [docs/SCALING.md](docs/SCALING.md) for what that buys and the one trade-off
+  it costs (activity history is two months deep).

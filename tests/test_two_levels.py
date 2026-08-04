@@ -20,14 +20,14 @@ L1_DEFAULT = 5.0
 L2_DEFAULT = 5.0
 
 
-def _member(user_id: int, username: str, referrer_uid: str | None, pair_id: int):
+def _member(user_id: int, name: str, referrer_uid: str | None, pair_id: int):
     """A verified, placed user who is active this month."""
-    db.create_user(user_id, username, username.title(), referrer_uid)
-    db.set_user_fields(
-        user_id, verified=1, phone_hash=f"hash-{username}", pair_id=pair_id
-    )
+    db.create_user(user_id, referred_by=referrer_uid)
+    db.set_user_fields(user_id, phone_hash=f"hash-{name}".encode())
+    db.set_flags(user_id, verified=True)
+    db.assign_pair(user_id, pair_id)
     join_both(user_id)
-    db.record_activity(user_id, "callback", "tap")
+    db.record_activity(user_id)
     return db.get_user(user_id)
 
 
@@ -39,8 +39,8 @@ def chain(world):
 
     join_both(5001)
     join_both(5002)
-    db.record_activity(5001, "command", "/start")
-    db.record_activity(5002, "command", "/start")
+    db.record_activity(5001)
+    db.record_activity(5002)
 
     carol = _member(5003, "carol", str(bob["uid"]), pair_id)
     dave = _member(5004, "dave", str(bob["uid"]), pair_id)
@@ -84,8 +84,8 @@ def test_the_simplest_chain_pays_the_top_both_levels(world, month):
     alice, bob, pair = world
     join_both(5001)
     join_both(5002)
-    db.record_activity(5001, "command", "/start")
-    db.record_activity(5002, "command", "/start")
+    db.record_activity(5001)
+    db.record_activity(5002)
     _member(5003, "carol", str(bob["uid"]), int(pair["pair_id"]))
 
     report = earnings.report_for(db.get_user(5001), month)
@@ -122,7 +122,7 @@ def test_level2_rows_name_the_member_who_introduced_them(chain, month):
 
 def test_an_inactive_level2_member_pays_nobody(chain, month):
     alice, bob, (carol, _, _) = chain
-    db.set_membership(int(carol["id"]), -100_2, "channel", "left")
+    db.set_membership(carol["id"], -100_2, False)
 
     a_report = earnings.report_for(db.get_user(5001), month)
     assert a_report.active_indirect == 2
@@ -140,7 +140,7 @@ def test_an_inactive_middle_member_keeps_their_downline_in_as_level2(chain, mont
     for A even though the person who introduced them stopped participating.
     """
     alice, bob, _ = chain
-    db.set_membership(int(bob["id"]), -100_1, "group", "left")
+    db.set_membership(bob["id"], -100_1, False)
 
     a_report = earnings.report_for(db.get_user(5001), month)
     assert a_report.active_referrals == 0      # B no longer counts at level 1
@@ -155,7 +155,7 @@ def test_an_inactive_middle_member_keeps_their_downline_in_as_level2(chain, mont
 
 def test_an_inactive_earner_is_paid_nothing_at_either_level(chain, month):
     alice, _, _ = chain
-    db.set_membership(5001, -100_1, "group", "left")
+    db.set_membership(5001, -100_1, False)
 
     report = earnings.report_for(db.get_user(5001), month)
     assert report.gross == L1_DEFAULT + 3 * L2_DEFAULT
@@ -166,8 +166,8 @@ def test_an_inactive_earner_is_paid_nothing_at_either_level(chain, month):
 
 def test_unverified_and_banned_members_count_at_neither_level(chain, month):
     alice, _, (carol, dave, _) = chain
-    db.set_user_fields(int(carol["id"]), verified=0)
-    db.set_user_fields(int(dave["id"]), banned=1)
+    db.set_flags(int(carol["id"]), verified=False)
+    db.set_flags(int(dave["id"]), banned=True)
 
     report = earnings.report_for(db.get_user(5001), month)
     assert report.active_indirect == 1
@@ -178,7 +178,7 @@ def test_a_reciprocal_referral_never_makes_someone_their_own_downline(world, mon
     """A refers B; if A then also gets recorded as B's referral, A is not
     allowed to appear in A's own level 2."""
     alice, bob, _ = world
-    db.set_user_fields(5001, referred_by_uid=str(bob["uid"]))
+    db.set_user_fields(5001, referred_by=str(bob["uid"]))
 
     level2 = db.level2_referrals_of(str(alice["uid"]))
     assert str(alice["uid"]) not in [row["uid"] for row in level2]

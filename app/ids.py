@@ -35,12 +35,22 @@ def normalise_uid(raw: str | None) -> str | None:
     return candidate if UID_RE.match(candidate) else None
 
 
-def hash_phone(phone: str) -> str:
-    """SHA-256 of the digits of a phone number. Raw numbers are never stored."""
+# 128 bits of a SHA-256, stored as a BLOB. Its only job is to reject a second
+# account for the same number, and at 30 million users the chance of a
+# collision is about 1 in 10^23 — while costing 16 bytes per user instead of
+# the 64 a hex string would.
+PHONE_HASH_BYTES = 16
+
+
+def hash_phone(phone: str) -> bytes:
+    """Truncated SHA-256 of a phone number's digits.
+
+    The number itself is never stored, logged or exported — only this.
+    """
     digits = re.sub(r"\D", "", phone or "")
     if not digits:
         raise ValueError("empty phone number")
-    return hashlib.sha256(digits.encode("utf-8")).hexdigest()
+    return hashlib.sha256(digits.encode("utf-8")).digest()[:PHONE_HASH_BYTES]
 
 
 def referral_payload(uid: str) -> str:

@@ -60,8 +60,8 @@ def test_public_user_page_shows_the_breakdown(client, world):
     referrer, referred, _ = world
     join_both(5001)
     join_both(5002)
-    db.record_activity(5001, "command", "/start")
-    db.record_activity(5002, "callback", "tap")
+    db.record_activity(5001)
+    db.record_activity(5002)
 
     response = client.get(f"/u/{referrer['uid']}")
     assert response.status_code == 200

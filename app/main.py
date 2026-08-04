@@ -36,11 +36,33 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    db.init_db()
+    try:
+        db.init_db()
+    except db.SchemaMismatch as exc:
+        log.error("=" * 70)
+        log.error("Cannot start: %s", exc)
+        log.error("=" * 70)
+        raise
     log.info("database ready at %s", settings.db_path)
 
     if not settings.admin_token:
         log.warning("ADMIN_TOKEN is empty — the admin panel will refuse every login")
+    elif len(settings.admin_token) < 16:
+        log.warning(
+            "ADMIN_TOKEN is only %d characters — it is the single password "
+            "guarding every payout; use at least 24 random characters",
+            len(settings.admin_token),
+        )
+    if settings.session_secret == settings.admin_token:
+        log.warning(
+            "SESSION_SECRET is unset and falling back to ADMIN_TOKEN — set it "
+            "so rotating one does not invalidate the other"
+        )
+    if not settings.admin_ids:
+        log.warning(
+            "ADMIN_IDS is empty — nobody can drive the broadcast bot or the "
+            "in-chat moderation commands"
+        )
 
     await manager.start_all()
     scheduler_task = asyncio.create_task(daily_loop(), name="daily-scheduler")

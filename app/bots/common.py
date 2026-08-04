@@ -25,31 +25,26 @@ def is_owner(user_id: int | None) -> bool:
 
 
 def full_name_of(user: User | None) -> str:
+    """The display name from the *live* update.
+
+    Names are never stored — Telegram sends the current one with every
+    update, so the bots read it from there and the database holds less
+    personal data.
+    """
     if user is None:
         return ""
     parts = [user.first_name or "", user.last_name or ""]
-    return " ".join(part for part in parts if part).strip()
+    return " ".join(part for part in parts if part).strip() or (user.username or "")
 
 
-def ensure_user(tg_user: User, referred_by_uid: str | None = None) -> sqlite3.Row:
+def ensure_user(tg_user: User, referred_by: str | None = None) -> sqlite3.Row:
     """Fetch or create the ``users`` row for a Telegram user.
 
     Someone who only ever posts in a managed group also gets a row (and a
     UID); they stay unverified until they share a contact, so they can never
     be counted or paid.
     """
-    row = db.get_user(tg_user.id)
-    if row is None:
-        return db.create_user(
-            user_id=tg_user.id,
-            username=tg_user.username,
-            full_name=full_name_of(tg_user),
-            referred_by_uid=referred_by_uid,
-        )
-    db.touch_user(tg_user.id, username=tg_user.username, full_name=full_name_of(tg_user))
-    if referred_by_uid and row["referred_by_uid"] is None:
-        db.set_user_fields(tg_user.id, referred_by_uid=referred_by_uid)
-    return db.get_user(tg_user.id) or row
+    return db.create_user(user_id=tg_user.id, referred_by=referred_by)
 
 
 async def referral_link(bot: Bot, uid: str) -> str:

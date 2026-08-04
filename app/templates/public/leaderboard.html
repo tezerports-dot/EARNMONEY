@@ -16,7 +16,7 @@
 <div class="card table-scroll">
   <table>
     <thead>
-      <tr><th>#</th><th>ID</th><th>Name</th>
+      <tr><th>#</th><th>ID</th>
           <th class="num">🥇 Level 1 active</th><th class="num">🥈 Level 2 active</th>
           <th class="num">Earnings</th></tr>
     </thead>
@@ -25,8 +25,7 @@
       <tr>
         <td>{{ loop.index }}</td>
         <td><a href="/u/{{ user.uid }}"><code>{{ user.uid }}</code></a></td>
-        <td>{{ user.full_name or user.username or "—" }}</td>
-        <td class="num">{{ report.active_referrals }}<span class="muted small">/{{ report.total_referrals }}</span></td>
+                <td class="num">{{ report.active_referrals }}<span class="muted small">/{{ report.total_referrals }}</span></td>
         <td class="num">{{ report.active_indirect }}<span class="muted small">/{{ report.total_indirect }}</span></td>
         <td class="num">₹{{ '%g' % report.amount }}</td>
       </tr>

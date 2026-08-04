@@ -1,51 +1,102 @@
-"""SQLite access layer.
+"""SQLite access layer, sized for millions of users on one small machine.
+
+Storage policy
+--------------
+Only what a payout actually needs is kept. Everything else is either derived
+at read time or never written at all:
+
+* **No per-interaction log.** The rule only ever asks "did this person
+  interact during month M?", which is one fact per person per month, not one
+  row per tap. Two integer columns on the user row (``active_month``,
+  ``prev_month``) answer it, so a member who taps a thousand buttons causes
+  at most **one** write all month.
+* **No memberships table.** A user belongs to exactly one pair — one group
+  and one channel — so their membership is two bits in ``users.flags``
+  instead of two rows.
+* **No invite-link table.** Only the short link hash is kept, on the user
+  row; attribution works off the link *name* (the UID), which Telegram
+  reports on join and which costs nothing to store.
+* **No profile data.** Usernames, display names, message counts and
+  last-seen timestamps are never written — Telegram sends the current name
+  with every update, so the bots display it live and the database holds less
+  personal data.
+* **Phone numbers** are a truncated 16-byte SHA-256 (BLOB, not hex text),
+  which is only ever used to reject a second account.
+
+The permanent record of money is the ``withdrawals`` row, which is written
+once per payout and is tiny. Activity history is deliberately two months
+deep — the current month plus the previous one — which covers the whole
+payout window; see docs/SCALING.md.
 
 Design notes
 ------------
-* One connection per operation, handed out by the :func:`connect` context
-  manager. WAL mode lets the FastAPI request handlers and the bot polling
-  tasks read concurrently while a single writer commits.
+* One connection per operation, handed out by :func:`connect`. WAL mode lets
+  the FastAPI request handlers and the bot polling tasks read concurrently
+  while a single writer commits.
 * ``users.id`` is the *Telegram user id*. Telegram ids are global, so every
   bot in the fleet sees the same id for the same person and all foreign keys
-  (memberships, activity, bank details) line up without a mapping table.
-* All queries are parameterised. The only string interpolation is over
-  column/table names that this module itself controls.
+  line up without a mapping table.
 """
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Sequence
+from typing import Any, Iterator, Sequence
 
 from app.config import settings
 from app.ids import random_uid
-from app.timeutil import current_month, iso_utc, month_key
+from app.timeutil import (
+    current_month,
+    current_month_int,
+    iso_utc,
+    month_to_int,
+    now_utc,
+)
+
+SCHEMA_VERSION = "2"
 
 # SQLite serialises writers itself, but a process-wide lock keeps the
 # "read, decide, write" sequences in this module atomic against each other.
 _write_lock = threading.RLock()
 
+# users.flags bits. Packing five booleans into one integer keeps the row at a
+# single byte for all of them instead of five separate columns.
+F_VERIFIED = 1
+F_DUPLICATE = 2
+F_BANNED = 4
+F_IN_GROUP = 8
+F_IN_CHANNEL = 16
+
+FLAG_NAMES = {
+    "verified": F_VERIFIED,
+    "duplicate": F_DUPLICATE,
+    "banned": F_BANNED,
+    "in_group": F_IN_GROUP,
+    "in_channel": F_IN_CHANNEL,
+}
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
-    id              INTEGER PRIMARY KEY,          -- Telegram user id
-    uid             TEXT UNIQUE NOT NULL,
-    username        TEXT,
-    full_name       TEXT,
-    phone_hash      TEXT UNIQUE,
-    referred_by_uid TEXT,
-    verified        INTEGER NOT NULL DEFAULT 0,
-    duplicate       INTEGER NOT NULL DEFAULT 0,
-    banned          INTEGER NOT NULL DEFAULT 0,
-    pair_id         INTEGER,
-    joined_at       TEXT NOT NULL,
-    last_seen       TEXT,
-    message_count   INTEGER NOT NULL DEFAULT 0
+    id           INTEGER PRIMARY KEY,   -- Telegram user id
+    uid          TEXT    NOT NULL,      -- public id, UID-XXXXXX
+    referred_by  TEXT,                  -- referrer's uid
+    phone_hash   BLOB,                  -- 16-byte truncated SHA-256
+    flags        INTEGER NOT NULL DEFAULT 0,
+    pair_id      INTEGER,
+    joined_at    INTEGER NOT NULL,      -- unix epoch seconds
+    active_month INTEGER,               -- YYYYMM of the latest interaction
+    prev_month   INTEGER,               -- YYYYMM of the one before that
+    group_invite TEXT,                  -- t.me/+<hash>, hash only
+    chan_invite  TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_users_referred_by ON users(referred_by_uid);
-CREATE INDEX IF NOT EXISTS idx_users_pair ON users(pair_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_uid ON users(uid);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone
+    ON users(phone_hash) WHERE phone_hash IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_users_ref ON users(referred_by);
 
 CREATE TABLE IF NOT EXISTS bots (
     bot_id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -68,7 +119,6 @@ CREATE TABLE IF NOT EXISTS chats (
     added_at  TEXT NOT NULL,
     PRIMARY KEY (chat_id, bot_id)
 );
-CREATE INDEX IF NOT EXISTS idx_chats_pair ON chats(pair_id);
 
 CREATE TABLE IF NOT EXISTS pairs (
     pair_id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,40 +129,9 @@ CREATE TABLE IF NOT EXISTS pairs (
     is_primary      INTEGER NOT NULL DEFAULT 0,
     capacity        INTEGER NOT NULL DEFAULT 0,   -- 0 = unlimited
     closed          INTEGER NOT NULL DEFAULT 0,
+    member_count    INTEGER NOT NULL DEFAULT 0,   -- maintained incrementally
     created_at      TEXT NOT NULL
 );
-
-CREATE TABLE IF NOT EXISTS memberships (
-    user_id   INTEGER NOT NULL,
-    chat_id   INTEGER NOT NULL,
-    chat_type TEXT NOT NULL,
-    status    TEXT NOT NULL DEFAULT 'member',
-    joined_at TEXT,
-    left_at   TEXT,
-    PRIMARY KEY (user_id, chat_id)
-);
-CREATE INDEX IF NOT EXISTS idx_memberships_chat ON memberships(chat_id, status);
-
-CREATE TABLE IF NOT EXISTS user_activity (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id       INTEGER NOT NULL,
-    month         TEXT NOT NULL,
-    activity_type TEXT NOT NULL,
-    payload       TEXT,
-    ts            TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_activity_user_month ON user_activity(user_id, month);
-CREATE INDEX IF NOT EXISTS idx_activity_month ON user_activity(month);
-
-CREATE TABLE IF NOT EXISTS invite_links (
-    user_id      INTEGER NOT NULL,
-    chat_id      INTEGER NOT NULL,
-    invite_link  TEXT NOT NULL,
-    link_name    TEXT NOT NULL,
-    created_at   TEXT NOT NULL,
-    PRIMARY KEY (user_id, chat_id)
-);
-CREATE INDEX IF NOT EXISTS idx_invite_name ON invite_links(link_name);
 
 CREATE TABLE IF NOT EXISTS bank_details (
     user_id        INTEGER PRIMARY KEY,
@@ -120,17 +139,17 @@ CREATE TABLE IF NOT EXISTS bank_details (
     account_number TEXT NOT NULL,
     ifsc           TEXT NOT NULL,
     upi_id         TEXT NOT NULL,
-    submitted_at   TEXT NOT NULL
+    submitted_at   INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS withdrawals (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id      INTEGER NOT NULL,
-    month        TEXT NOT NULL,
+    month        INTEGER NOT NULL,        -- YYYYMM
     amount       REAL NOT NULL,
     status       TEXT NOT NULL DEFAULT 'pending',
-    created_at   TEXT NOT NULL,
-    processed_at TEXT,
+    created_at   INTEGER NOT NULL,
+    processed_at INTEGER,
     note         TEXT,
     UNIQUE (user_id, month)
 );
@@ -138,25 +157,24 @@ CREATE INDEX IF NOT EXISTS idx_withdrawals_month ON withdrawals(month, status);
 
 CREATE TABLE IF NOT EXISTS events (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    ts         TEXT NOT NULL,
+    ts         INTEGER NOT NULL,
     user_id    INTEGER,
     event_type TEXT NOT NULL,
     payload    TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 
 CREATE TABLE IF NOT EXISTS warnings (
     user_id    INTEGER NOT NULL,
     chat_id    INTEGER NOT NULL,
     count      INTEGER NOT NULL DEFAULT 0,
-    updated_at TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, chat_id)
-);
+) WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT
-);
+) WITHOUT ROWID;
 """
 
 DEFAULT_SETTINGS = {
@@ -172,6 +190,7 @@ DEFAULT_SETTINGS = {
         "it asks for your name, account number, IFSC and UPI id one at a time."
     ),
     "daily_prompt_dm": "1",
+    "daily_prompt_dm_limit": "2000",
     "broadcast_confirm": "1",
     "moderation_enabled": "1",
     "flood_limit": "6",
@@ -181,6 +200,7 @@ DEFAULT_SETTINGS = {
     "mute_minutes": "60",
     "block_links_from_unverified": "1",
     "banned_words": "",
+    "event_retention": "20000",
     "welcome_text": (
         "👋 <b>Welcome!</b>\n\n"
         "Tap the button below once. It shares your contact, verifies you, "
@@ -194,18 +214,15 @@ def _configure(conn: sqlite3.Connection) -> None:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA busy_timeout=10000")
+    # 64 MB of page cache. The hot set at scale is the uid and phone indexes;
+    # the OS page cache handles the rest without this process growing.
+    conn.execute("PRAGMA cache_size=-64000")
 
 
 @contextmanager
 def connect(write: bool = False) -> Iterator[sqlite3.Connection]:
-    """Open a connection for the duration of one operation.
-
-    ``write=True`` also takes the process-wide write lock and commits on a
-    clean exit, so a caller can do read-modify-write without racing another
-    bot task or web request.
-    """
+    """Open a connection for the duration of one operation."""
     path = Path(settings.db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     if write:
@@ -257,43 +274,38 @@ def execute(sql: str, params: Sequence[Any] = ()) -> int:
         return cur.lastrowid or cur.rowcount
 
 
-def _existing_columns(conn: sqlite3.Connection, table: str) -> set[str]:
-    return {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+class SchemaMismatch(RuntimeError):
+    """Raised when the database on disk predates the slim schema."""
 
 
 def init_db() -> None:
-    """Create the schema and backfill columns added after a deploy."""
     with connect(write=True) as conn:
+        legacy = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+            " AND name IN ('user_activity', 'memberships', 'invite_links')"
+        ).fetchall()
+        if legacy:
+            raise SchemaMismatch(
+                "This database uses the old high-volume schema "
+                f"({', '.join(row['name'] for row in legacy)}). The current "
+                "schema stores far less per user and is not a drop-in "
+                "migration. Point DB_PATH at a new file, or see "
+                "docs/MANAGEMENT.md for the migration steps."
+            )
         conn.executescript(SCHEMA)
-        # Forward-compatible column adds for databases created by older builds.
-        additions = {
-            "users": {
-                "full_name": "TEXT",
-                "banned": "INTEGER NOT NULL DEFAULT 0",
-                "message_count": "INTEGER NOT NULL DEFAULT 0",
-            },
-            "bots": {
-                "role": "TEXT NOT NULL DEFAULT 'main'",
-                "username": "TEXT",
-                "telegram_id": "INTEGER",
-                "last_error": "TEXT",
-            },
-            "pairs": {
-                "title": "TEXT",
-                "capacity": "INTEGER NOT NULL DEFAULT 0",
-                "closed": "INTEGER NOT NULL DEFAULT 0",
-            },
-            "withdrawals": {"note": "TEXT"},
-        }
-        for table, columns in additions.items():
-            have = _existing_columns(conn, table)
-            for column, decl in columns.items():
-                if column not in have:
-                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
         for key, value in DEFAULT_SETTINGS.items():
             conn.execute(
                 "INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (key, value)
             )
+        conn.execute(
+            "INSERT INTO settings(key, value) VALUES ('schema_version', ?)"
+            " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (SCHEMA_VERSION,),
+        )
+
+
+def epoch() -> int:
+    return int(now_utc().timestamp())
 
 
 # --------------------------------------------------------------------------- #
@@ -342,7 +354,7 @@ def all_settings() -> dict[str, str]:
 def log_event(event_type: str, user_id: int | None = None, payload: str = "") -> None:
     execute(
         "INSERT INTO events(ts, user_id, event_type, payload) VALUES (?, ?, ?, ?)",
-        (iso_utc(), user_id, event_type, payload),
+        (epoch(), user_id, event_type, payload[:300]),
     )
 
 
@@ -353,6 +365,30 @@ def recent_events(limit: int = 200, user_id: int | None = None) -> list[sqlite3.
             (user_id, limit),
         )
     return query("SELECT * FROM events ORDER BY id DESC LIMIT ?", (limit,))
+
+
+def prune_events() -> int:
+    """Keep the audit log to the most recent ``event_retention`` rows.
+
+    The log is an operational aid, not a legal record — the withdrawals table
+    is what documents money. Left alone it would be the one table that grows
+    without bound.
+    """
+    keep = get_setting_int("event_retention", 20_000)
+    with connect(write=True) as conn:
+        row = conn.execute("SELECT MAX(id) AS top FROM events").fetchone()
+        if row is None or row["top"] is None:
+            return 0
+        cutoff = int(row["top"]) - keep
+        if cutoff <= 0:
+            return 0
+        cur = conn.execute("DELETE FROM events WHERE id <= ?", (cutoff,))
+        return cur.rowcount or 0
+
+
+def prune_warnings(older_than_days: int = 90) -> int:
+    cutoff = epoch() - older_than_days * 86_400
+    return execute("DELETE FROM warnings WHERE updated_at < ?", (cutoff,))
 
 
 # --------------------------------------------------------------------------- #
@@ -367,94 +403,93 @@ def get_user_by_uid(uid: str) -> sqlite3.Row | None:
     return query_one("SELECT * FROM users WHERE uid = ?", (uid,))
 
 
-def get_user_by_phone_hash(phone_hash: str) -> sqlite3.Row | None:
+def get_user_by_phone_hash(phone_hash: bytes) -> sqlite3.Row | None:
     return query_one("SELECT * FROM users WHERE phone_hash = ?", (phone_hash,))
 
 
-def create_user(
-    user_id: int,
-    username: str | None,
-    full_name: str | None,
-    referred_by_uid: str | None,
-) -> sqlite3.Row:
+def has_flag(user: sqlite3.Row | None, flag: int) -> bool:
+    return user is not None and bool(int(user["flags"] or 0) & flag)
+
+
+def set_flag(user_id: int, flag: int, on: bool = True) -> None:
+    if on:
+        execute("UPDATE users SET flags = flags | ? WHERE id = ?", (flag, user_id))
+    else:
+        execute("UPDATE users SET flags = flags & ~? WHERE id = ?", (flag, user_id))
+
+
+def set_flags(user_id: int, **named: bool) -> None:
+    """Set several flags in one statement, e.g. ``set_flags(id, banned=True)``."""
+    on = 0
+    off = 0
+    for name, value in named.items():
+        bit = FLAG_NAMES[name]
+        if value:
+            on |= bit
+        else:
+            off |= bit
+    if on or off:
+        execute(
+            "UPDATE users SET flags = (flags | ?) & ~? WHERE id = ?", (on, off, user_id)
+        )
+
+
+def create_user(user_id: int, referred_by: str | None = None) -> sqlite3.Row:
     """Insert a user with a collision-safe UID, or return the existing row.
 
     ``/start`` is idempotent: a repeat call never creates a second row and
-    never rewrites an existing referrer.
+    never rewrites an existing referrer, though it will fill in one that was
+    previously absent.
     """
     with connect(write=True) as conn:
         existing = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
         if existing is not None:
-            conn.execute(
-                "UPDATE users SET username = ?, full_name = ?, last_seen = ? WHERE id = ?",
-                (username, full_name, iso_utc(), user_id),
-            )
-            if existing["referred_by_uid"] is None and referred_by_uid:
+            if existing["referred_by"] is None and referred_by:
                 conn.execute(
-                    "UPDATE users SET referred_by_uid = ? WHERE id = ?",
-                    (referred_by_uid, user_id),
+                    "UPDATE users SET referred_by = ? WHERE id = ?", (referred_by, user_id)
                 )
-            return conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+                return conn.execute(
+                    "SELECT * FROM users WHERE id = ?", (user_id,)
+                ).fetchone()
+            return existing
 
-        now = iso_utc()
+        now = epoch()
         for _ in range(25):  # retry on the (astronomically rare) UID collision
             uid = random_uid()
             try:
                 conn.execute(
-                    "INSERT INTO users(id, uid, username, full_name, referred_by_uid,"
-                    " joined_at, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (user_id, uid, username, full_name, referred_by_uid, now, now),
+                    "INSERT INTO users(id, uid, referred_by, joined_at) VALUES (?, ?, ?, ?)",
+                    (user_id, uid, referred_by, now),
                 )
                 break
             except sqlite3.IntegrityError as exc:
-                if "users.uid" not in str(exc):
+                if "users.uid" not in str(exc) and "idx_users_uid" not in str(exc):
                     raise
         else:
             raise RuntimeError("could not allocate a unique UID after 25 attempts")
+        conn.execute(
+            "INSERT INTO settings(key, value) VALUES ('user_count', '1')"
+            " ON CONFLICT(key) DO UPDATE SET"
+            " value = CAST(CAST(settings.value AS INTEGER) + 1 AS TEXT)"
+        )
         return conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-
-
-def touch_user(user_id: int, username: str | None = None, full_name: str | None = None) -> None:
-    with connect(write=True) as conn:
-        if username is None and full_name is None:
-            conn.execute("UPDATE users SET last_seen = ? WHERE id = ?", (iso_utc(), user_id))
-        else:
-            conn.execute(
-                "UPDATE users SET last_seen = ?,"
-                " username = COALESCE(?, username), full_name = COALESCE(?, full_name)"
-                " WHERE id = ?",
-                (iso_utc(), username, full_name, user_id),
-            )
 
 
 def set_user_fields(user_id: int, **fields: Any) -> None:
     allowed = {
-        "username",
-        "full_name",
         "phone_hash",
-        "referred_by_uid",
-        "verified",
-        "duplicate",
-        "banned",
+        "referred_by",
         "pair_id",
-        "last_seen",
-        "message_count",
+        "group_invite",
+        "chan_invite",
+        "active_month",
+        "prev_month",
     }
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return
     assignments = ", ".join(f"{key} = ?" for key in updates)
-    execute(
-        f"UPDATE users SET {assignments} WHERE id = ?",
-        (*updates.values(), user_id),
-    )
-
-
-def bump_message_count(user_id: int) -> None:
-    execute(
-        "UPDATE users SET message_count = message_count + 1, last_seen = ? WHERE id = ?",
-        (iso_utc(), user_id),
-    )
+    execute(f"UPDATE users SET {assignments} WHERE id = ?", (*updates.values(), user_id))
 
 
 def count_users(where: str = "", params: Sequence[Any] = ()) -> int:
@@ -462,31 +497,41 @@ def count_users(where: str = "", params: Sequence[Any] = ()) -> int:
     return int(scalar(f"SELECT COUNT(*) FROM users{clause}", params))
 
 
-def list_users(
-    search: str = "",
-    limit: int = 100,
-    offset: int = 0,
-) -> list[sqlite3.Row]:
-    if search:
-        like = f"%{search.strip()}%"
-        return query(
-            "SELECT * FROM users WHERE uid LIKE ? OR username LIKE ? OR full_name LIKE ?"
-            " OR CAST(id AS TEXT) LIKE ? ORDER BY joined_at DESC LIMIT ? OFFSET ?",
-            (like, like, like, like, limit, offset),
-        )
+def list_users(search: str = "", limit: int = 100, offset: int = 0) -> list[sqlite3.Row]:
+    """Search by UID or Telegram id.
+
+    There is deliberately no name search: names are never stored, so the only
+    stable handles are the public UID and the numeric Telegram id.
+    """
+    term = search.strip()
+    if term:
+        from app.ids import normalise_uid
+
+        uid = normalise_uid(term)
+        if uid:
+            return query("SELECT * FROM users WHERE uid = ?", (uid,))
+        if term.isdigit():
+            return query("SELECT * FROM users WHERE id = ?", (int(term),))
+        return []
     return query(
         "SELECT * FROM users ORDER BY joined_at DESC LIMIT ? OFFSET ?", (limit, offset)
     )
 
 
-def referrals_of(uid: str) -> list[sqlite3.Row]:
-    """Level 1: the people this user introduced directly."""
+def referrals_of(uid: str, limit: int = 1000) -> list[sqlite3.Row]:
+    """Level 1: the people this user introduced directly.
+
+    Bounded — the payout is computed from ``count_active_downline``, so this
+    list only ever has to be big enough to show.
+    """
     return query(
-        "SELECT * FROM users WHERE referred_by_uid = ? ORDER BY joined_at DESC", (uid,)
+        "SELECT * FROM users WHERE referred_by = ? AND uid <> ?"
+        " ORDER BY joined_at DESC LIMIT ?",
+        (uid, uid, limit),
     )
 
 
-def level2_referrals_of(uid: str) -> list[sqlite3.Row]:
+def level2_referrals_of(uid: str, limit: int = 1000) -> list[sqlite3.Row]:
     """Level 2: the people *their* direct referrals introduced.
 
     Each row carries ``via_uid`` — the level-1 member who brought them in — so
@@ -496,11 +541,294 @@ def level2_referrals_of(uid: str) -> list[sqlite3.Row]:
     """
     return query(
         "SELECT c.*, b.uid AS via_uid FROM users c"
-        " JOIN users b ON b.uid = c.referred_by_uid"
-        " WHERE b.referred_by_uid = ? AND c.uid <> ?"
-        " ORDER BY c.joined_at DESC",
-        (uid, uid),
+        " JOIN users b ON b.uid = c.referred_by"
+        " WHERE b.referred_by = ? AND b.uid <> ? AND c.uid <> ?"
+        " ORDER BY c.joined_at DESC LIMIT ?",
+        (uid, uid, uid, limit),
     )
+
+
+# --------------------------------------------------------------------------- #
+# activity — two integers, not a table
+# --------------------------------------------------------------------------- #
+
+def record_activity(user_id: int) -> bool:
+    """Mark this user as having interacted during the current IST month.
+
+    Returns True if anything was written. The row is only touched when the
+    month actually changes, so a member who taps a hundred buttons in a month
+    costs exactly one write — the whole reason there is no activity log.
+    """
+    month = current_month_int()
+    row = query_one("SELECT active_month FROM users WHERE id = ?", (user_id,))
+    if row is None or row["active_month"] == month:
+        return False
+    execute(
+        "UPDATE users SET prev_month = active_month, active_month = ?"
+        " WHERE id = ? AND (active_month IS NULL OR active_month <> ?)",
+        (month, user_id, month),
+    )
+    return True
+
+
+def was_active_in(user: sqlite3.Row | None, month: str) -> bool:
+    """Did this user interact during ``month`` (``YYYY-MM``)?
+
+    History is two months deep — the current month and the previous one —
+    which spans the payout window. Older months are reported as inactive
+    because the data is genuinely gone; the withdrawals row is the permanent
+    record of what was paid.
+    """
+    if user is None:
+        return False
+    target = month_to_int(month)
+    return target in (user["active_month"], user["prev_month"])
+
+
+def activity_horizon() -> list[str]:
+    """The months for which activity can still be answered."""
+    from app.timeutil import shift_month
+
+    now = current_month()
+    return [now, shift_month(now, -1)]
+
+
+# A user is countable when verified, not duplicate, not banned, and in both
+# of their chats. Expressed as one mask so the aggregate queries can test it
+# with a single integer comparison instead of five.
+COUNTABLE_MASK = F_VERIFIED | F_DUPLICATE | F_BANNED | F_IN_GROUP | F_IN_CHANNEL
+COUNTABLE_VALUE = F_VERIFIED | F_IN_GROUP | F_IN_CHANNEL
+
+
+def active_user_count(month: str | None = None) -> int:
+    target = month_to_int(month or current_month())
+    return int(
+        scalar(
+            "SELECT COUNT(*) FROM users WHERE active_month = ? OR prev_month = ?",
+            (target, target),
+        )
+    )
+
+
+def _standings_subquery() -> str:
+    """One row per (earner, downline member), tagged with the level.
+
+    Both levels are gathered in a single pass and the earner's *own* row is
+    joined in at the same time, so building the leaderboard never needs a
+    lookup per earner — that turned into 150,000 queries at 300k members and
+    took 35 seconds.
+    """
+    countable = "(u.flags & ?) = ? AND (u.active_month = ? OR u.prev_month = ?)"
+    return f"""
+        SELECT r.uid AS uid, r.flags AS flags,
+               r.active_month AS active_month, r.prev_month AS prev_month,
+               1 AS l1, 0 AS l2
+          FROM users u
+          JOIN users r ON r.uid = u.referred_by
+         WHERE u.uid <> r.uid AND {countable}
+        UNION ALL
+        SELECT r.uid AS uid, r.flags AS flags,
+               r.active_month AS active_month, r.prev_month AS prev_month,
+               0 AS l1, 1 AS l2
+          FROM users u
+          JOIN users b ON b.uid = u.referred_by
+          JOIN users r ON r.uid = b.referred_by
+         WHERE u.uid <> r.uid AND b.uid <> r.uid AND {countable}
+    """
+
+
+def _countable_params(month: str) -> tuple[int, int, int, int]:
+    target = month_to_int(month)
+    return (COUNTABLE_MASK, COUNTABLE_VALUE, target, target)
+
+
+def standings_rows(
+    month: str, rate1: float, rate2: float, limit: int | None = None
+) -> list[sqlite3.Row]:
+    """Every earner's active downline counts, richest first, in one query."""
+    params = _countable_params(month)
+    tail = f" LIMIT {int(limit)}" if limit else ""
+    return query(
+        "SELECT uid, MAX(flags) AS flags, MAX(active_month) AS active_month,"
+        " MAX(prev_month) AS prev_month, SUM(l1) AS l1, SUM(l2) AS l2"
+        f" FROM ({_standings_subquery()}) GROUP BY uid"
+        " ORDER BY (SUM(l1) * ? + SUM(l2) * ?) DESC, uid" + tail,
+        (*params, *params, rate1, rate2),
+    )
+
+
+def standings_totals(month: str, rate1: float, rate2: float) -> dict[str, float]:
+    """Fleet-wide monthly totals without materialising a row per earner."""
+    params = _countable_params(month)
+    target = month_to_int(month)
+    row = query_one(
+        "SELECT COUNT(*) AS earners, COALESCE(SUM(l1), 0) AS a1,"
+        " COALESCE(SUM(l2), 0) AS a2,"
+        " COALESCE(SUM(CASE WHEN (flags & ?) = ? AND (active_month = ? OR prev_month = ?)"
+        "                   THEN l1 * ? + l2 * ? ELSE 0 END), 0) AS payable"
+        " FROM (SELECT uid, MAX(flags) AS flags, MAX(active_month) AS active_month,"
+        "              MAX(prev_month) AS prev_month, SUM(l1) AS l1, SUM(l2) AS l2"
+        f"         FROM ({_standings_subquery()}) GROUP BY uid)",
+        (COUNTABLE_MASK, COUNTABLE_VALUE, target, target, rate1, rate2, *params, *params),
+    )
+    if row is None:
+        return {"earners": 0, "a1": 0, "a2": 0, "payable": 0.0}
+    return {
+        "earners": int(row["earners"]),
+        "a1": int(row["a1"]),
+        "a2": int(row["a2"]),
+        "payable": float(row["payable"]),
+    }
+
+
+def active_downline_counts(month: str) -> tuple[dict[str, int], dict[str, int]]:
+    """``({uid: level-1 active}, {uid: level-2 active})`` for everyone, in two queries.
+
+    Computing this per user would mean one query per referrer — fine for a
+    hundred members, hopeless for millions. These two grouped scans replace
+    the whole loop.
+    """
+    target = month_to_int(month)
+    live = "(u.flags & ?) = ? AND (u.active_month = ? OR u.prev_month = ?)"
+
+    level1 = {
+        str(row["uid"]): int(row["n"])
+        for row in query(
+            "SELECT u.referred_by AS uid, COUNT(*) AS n FROM users u"
+            f" WHERE u.referred_by IS NOT NULL AND u.uid <> u.referred_by AND {live}"
+            " GROUP BY u.referred_by",
+            (COUNTABLE_MASK, COUNTABLE_VALUE, target, target),
+        )
+    }
+    level2 = {
+        str(row["uid"]): int(row["n"])
+        for row in query(
+            "SELECT b.referred_by AS uid, COUNT(*) AS n"
+            " FROM users u JOIN users b ON b.uid = u.referred_by"
+            " WHERE b.referred_by IS NOT NULL AND u.uid <> b.referred_by"
+            f" AND b.uid <> b.referred_by AND {live}"
+            " GROUP BY b.referred_by",
+            (COUNTABLE_MASK, COUNTABLE_VALUE, target, target),
+        )
+    }
+    return level1, level2
+
+
+def count_active_downline(uid: str, month: str) -> tuple[int, int]:
+    """Exact ``(level 1, level 2)`` active counts for one user.
+
+    The payout is computed from these, not from a displayed list, so a member
+    with an enormous downline is still paid correctly while the page shows
+    only the first page of names.
+    """
+    target = month_to_int(month)
+    live = "(u.flags & ?) = ? AND (u.active_month = ? OR u.prev_month = ?)"
+    params = (COUNTABLE_MASK, COUNTABLE_VALUE, target, target)
+
+    one = int(
+        scalar(
+            "SELECT COUNT(*) FROM users u"
+            f" WHERE u.referred_by = ? AND u.uid <> ? AND {live}",
+            (uid, uid, *params),
+        )
+    )
+    two = int(
+        scalar(
+            "SELECT COUNT(*) FROM users u JOIN users b ON b.uid = u.referred_by"
+            f" WHERE b.referred_by = ? AND b.uid <> ? AND u.uid <> ? AND {live}",
+            (uid, uid, uid, *params),
+        )
+    )
+    return one, two
+
+
+def count_downline(uid: str) -> tuple[int, int]:
+    """Total ``(level 1, level 2)`` sizes, active or not."""
+    one = int(
+        scalar(
+            "SELECT COUNT(*) FROM users WHERE referred_by = ? AND uid <> ?", (uid, uid)
+        )
+    )
+    two = int(
+        scalar(
+            "SELECT COUNT(*) FROM users u JOIN users b ON b.uid = u.referred_by"
+            " WHERE b.referred_by = ? AND b.uid <> ? AND u.uid <> ?",
+            (uid, uid, uid),
+        )
+    )
+    return one, two
+
+
+# --------------------------------------------------------------------------- #
+# membership — two bits, not a table
+# --------------------------------------------------------------------------- #
+
+def set_membership(user_id: int, chat_id: int, joined: bool) -> bool:
+    """Record a join or departure for one of the user's two chats.
+
+    A user belongs to exactly one pair, so the only memberships that can
+    matter are their own group and their own channel. Anything else is
+    ignored, and if they are not placed yet, joining a paired chat places
+    them.
+    """
+    user = get_user(user_id)
+    if user is None:
+        return False
+
+    pair = get_pair(int(user["pair_id"])) if user["pair_id"] else None
+    if pair is None or chat_id not in (pair["group_chat_id"], pair["channel_chat_id"]):
+        pair = pair_for_chat(chat_id)
+        if pair is None:
+            return False
+        if joined and not user["pair_id"]:
+            assign_pair(user_id, int(pair["pair_id"]))
+        elif int(user["pair_id"] or 0) != int(pair["pair_id"]):
+            return False
+
+    flag = F_IN_GROUP if chat_id == pair["group_chat_id"] else F_IN_CHANNEL
+    set_flag(user_id, flag, joined)
+    return True
+
+
+def pair_for_chat(chat_id: int) -> sqlite3.Row | None:
+    return query_one(
+        "SELECT * FROM pairs WHERE group_chat_id = ? OR channel_chat_id = ?",
+        (chat_id, chat_id),
+    )
+
+
+def assign_pair(user_id: int, pair_id: int) -> None:
+    with connect(write=True) as conn:
+        row = conn.execute("SELECT pair_id FROM users WHERE id = ?", (user_id,)).fetchone()
+        old = int(row["pair_id"]) if row and row["pair_id"] else None
+        if old == pair_id:
+            return
+        conn.execute("UPDATE users SET pair_id = ? WHERE id = ?", (pair_id, user_id))
+        conn.execute(
+            "UPDATE pairs SET member_count = member_count + 1 WHERE pair_id = ?", (pair_id,)
+        )
+        if old:
+            conn.execute(
+                "UPDATE pairs SET member_count = MAX(0, member_count - 1)"
+                " WHERE pair_id = ?",
+                (old,),
+            )
+
+
+def clear_pair(user_id: int) -> None:
+    with connect(write=True) as conn:
+        row = conn.execute("SELECT pair_id FROM users WHERE id = ?", (user_id,)).fetchone()
+        old = int(row["pair_id"]) if row and row["pair_id"] else None
+        conn.execute(
+            "UPDATE users SET pair_id = NULL, flags = flags & ~? WHERE id = ?",
+            (F_IN_GROUP | F_IN_CHANNEL, user_id),
+        )
+        if old:
+            conn.execute(
+                "UPDATE pairs SET member_count = MAX(0, member_count - 1)"
+                " WHERE pair_id = ?",
+                (old,),
+            )
 
 
 # --------------------------------------------------------------------------- #
@@ -568,12 +896,6 @@ def list_chats(bot_id: int | None = None) -> list[sqlite3.Row]:
     return query("SELECT * FROM chats WHERE bot_id = ? ORDER BY chat_type", (bot_id,))
 
 
-def get_chat(chat_id: int, bot_id: int) -> sqlite3.Row | None:
-    return query_one(
-        "SELECT * FROM chats WHERE chat_id = ? AND bot_id = ?", (chat_id, bot_id)
-    )
-
-
 def chat_rows(chat_id: int) -> list[sqlite3.Row]:
     """Every bot registration for one chat."""
     return query("SELECT * FROM chats WHERE chat_id = ?", (chat_id,))
@@ -606,11 +928,7 @@ def delete_chat(chat_id: int, bot_id: int) -> None:
 
 
 def distinct_managed_chats() -> list[sqlite3.Row]:
-    """One row per chat_id, with any bot that can post there.
-
-    Broadcasting must hit each chat exactly once even when three bots are
-    admins in it.
-    """
+    """One row per chat_id, with any bot that can post there."""
     return query(
         "SELECT chat_id, chat_type, MIN(bot_id) AS bot_id,"
         " MAX(title) AS title, MAX(pair_id) AS pair_id"
@@ -664,7 +982,10 @@ def update_pair(pair_id: int, **fields: Any) -> None:
 def delete_pair(pair_id: int) -> None:
     with connect(write=True) as conn:
         conn.execute("UPDATE chats SET pair_id = NULL WHERE pair_id = ?", (pair_id,))
-        conn.execute("UPDATE users SET pair_id = NULL WHERE pair_id = ?", (pair_id,))
+        conn.execute(
+            "UPDATE users SET pair_id = NULL, flags = flags & ~? WHERE pair_id = ?",
+            (F_IN_GROUP | F_IN_CHANNEL, pair_id),
+        )
         conn.execute("DELETE FROM pairs WHERE pair_id = ?", (pair_id,))
 
 
@@ -688,24 +1009,30 @@ def primary_pair() -> sqlite3.Row | None:
     return query_one("SELECT * FROM pairs WHERE is_primary = 1 LIMIT 1")
 
 
-def pair_load() -> dict[int, int]:
-    rows = query("SELECT pair_id, COUNT(*) AS n FROM users WHERE pair_id IS NOT NULL GROUP BY pair_id")
-    return {int(row["pair_id"]): int(row["n"]) for row in rows}
+def recount_pairs() -> None:
+    """Rebuild ``pairs.member_count`` from the users table.
+
+    The counter is maintained incrementally; this is the repair tool for when
+    it drifts (a crash mid-write, a manual SQL edit).
+    """
+    with connect(write=True) as conn:
+        conn.execute("UPDATE pairs SET member_count = 0")
+        conn.execute(
+            "UPDATE pairs SET member_count = COALESCE((SELECT COUNT(*) FROM users u"
+            " WHERE u.pair_id = pairs.pair_id), 0)"
+        )
 
 
 def usable_pairs() -> list[sqlite3.Row]:
     """Pairs that are open, complete (group + channel) and not over capacity."""
-    load = pair_load()
-    out = []
-    for pair in query(
-        "SELECT * FROM pairs WHERE closed = 0 AND group_chat_id IS NOT NULL"
-        " AND channel_chat_id IS NOT NULL ORDER BY pair_id"
-    ):
-        capacity = int(pair["capacity"] or 0)
-        if capacity and load.get(int(pair["pair_id"]), 0) >= capacity:
-            continue
-        out.append(pair)
-    return out
+    return [
+        pair
+        for pair in query(
+            "SELECT * FROM pairs WHERE closed = 0 AND group_chat_id IS NOT NULL"
+            " AND channel_chat_id IS NOT NULL ORDER BY pair_id"
+        )
+        if not pair["capacity"] or pair["member_count"] < pair["capacity"]
+    ]
 
 
 def choose_pair(referrer_pair_id: int | None) -> sqlite3.Row | None:
@@ -726,209 +1053,7 @@ def choose_pair(referrer_pair_id: int | None) -> sqlite3.Row | None:
     if fallback is not None and int(fallback["pair_id"]) in by_id:
         return by_id[int(fallback["pair_id"])]
 
-    load = pair_load()
-    return min(available, key=lambda pair: load.get(int(pair["pair_id"]), 0))
-
-
-# --------------------------------------------------------------------------- #
-# memberships
-# --------------------------------------------------------------------------- #
-
-def set_membership(
-    user_id: int,
-    chat_id: int,
-    chat_type: str,
-    status: str,
-) -> None:
-    """Record a membership transition.
-
-    A rejoin writes a fresh ``joined_at`` and clears ``left_at``; a departure
-    stamps ``left_at`` and keeps the row so history is not lost.
-    """
-    now = iso_utc()
-    joined_at = now if status == "member" else None
-    left_at = None if status == "member" else now
-    with connect(write=True) as conn:
-        row = conn.execute(
-            "SELECT status FROM memberships WHERE user_id = ? AND chat_id = ?",
-            (user_id, chat_id),
-        ).fetchone()
-        if row is None:
-            conn.execute(
-                "INSERT INTO memberships(user_id, chat_id, chat_type, status, joined_at, left_at)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                (user_id, chat_id, chat_type, status, joined_at, left_at),
-            )
-        elif status == "member":
-            conn.execute(
-                "UPDATE memberships SET status = 'member', chat_type = ?, joined_at = ?,"
-                " left_at = NULL WHERE user_id = ? AND chat_id = ?",
-                (chat_type, now, user_id, chat_id),
-            )
-        else:
-            conn.execute(
-                "UPDATE memberships SET status = ?, chat_type = ?, left_at = ?"
-                " WHERE user_id = ? AND chat_id = ?",
-                (status, chat_type, now, user_id, chat_id),
-            )
-
-
-def get_membership(user_id: int, chat_id: int) -> sqlite3.Row | None:
-    return query_one(
-        "SELECT * FROM memberships WHERE user_id = ? AND chat_id = ?", (user_id, chat_id)
-    )
-
-
-def is_member(user_id: int, chat_id: int | None) -> bool:
-    if not chat_id:
-        return False
-    row = get_membership(user_id, int(chat_id))
-    return row is not None and row["status"] == "member"
-
-
-def memberships_of(user_id: int) -> list[sqlite3.Row]:
-    return query(
-        "SELECT m.*, (SELECT MAX(title) FROM chats c WHERE c.chat_id = m.chat_id) AS title"
-        " FROM memberships m WHERE m.user_id = ? ORDER BY m.chat_type",
-        (user_id,),
-    )
-
-
-def members_of_chat(chat_id: int) -> list[int]:
-    return [
-        int(row["user_id"])
-        for row in query(
-            "SELECT user_id FROM memberships WHERE chat_id = ? AND status = 'member'",
-            (chat_id,),
-        )
-    ]
-
-
-# --------------------------------------------------------------------------- #
-# invite links
-# --------------------------------------------------------------------------- #
-
-def save_invite_link(user_id: int, chat_id: int, link: str, name: str) -> None:
-    execute(
-        "INSERT INTO invite_links(user_id, chat_id, invite_link, link_name, created_at)"
-        " VALUES (?, ?, ?, ?, ?)"
-        " ON CONFLICT(user_id, chat_id) DO UPDATE SET"
-        " invite_link = excluded.invite_link, link_name = excluded.link_name,"
-        " created_at = excluded.created_at",
-        (user_id, chat_id, link, name, iso_utc()),
-    )
-
-
-def get_invite_link(user_id: int, chat_id: int) -> str | None:
-    row = query_one(
-        "SELECT invite_link FROM invite_links WHERE user_id = ? AND chat_id = ?",
-        (user_id, chat_id),
-    )
-    return row["invite_link"] if row else None
-
-
-def owner_of_invite_link(link: str | None, name: str | None) -> sqlite3.Row | None:
-    """Resolve who a named invite link belongs to, by URL first then by name."""
-    if link:
-        row = query_one(
-            "SELECT u.* FROM invite_links i JOIN users u ON u.id = i.user_id"
-            " WHERE i.invite_link = ? LIMIT 1",
-            (link,),
-        )
-        if row is not None:
-            return row
-    if name:
-        return query_one("SELECT * FROM users WHERE uid = ? LIMIT 1", (name.strip().upper(),))
-    return None
-
-
-# --------------------------------------------------------------------------- #
-# activity
-# --------------------------------------------------------------------------- #
-
-def record_activity(
-    user_id: int,
-    activity_type: str,
-    payload: str = "",
-    once_per_day: bool = False,
-) -> None:
-    """Append a row to ``user_activity``.
-
-    ``once_per_day`` collapses high-volume signals (group chatter) to a single
-    row per user per type per IST day. It changes nothing about eligibility —
-    one interaction in the month is all that is ever required — it only keeps
-    the table from growing without bound.
-    """
-    now = iso_utc()
-    month = month_key(now)
-    with connect(write=True) as conn:
-        if once_per_day:
-            day = now[:10]
-            existing = conn.execute(
-                "SELECT 1 FROM user_activity WHERE user_id = ? AND activity_type = ?"
-                " AND ts >= ? LIMIT 1",
-                (user_id, activity_type, f"{day}T00:00:00Z"),
-            ).fetchone()
-            if existing is not None:
-                return
-        conn.execute(
-            "INSERT INTO user_activity(user_id, month, activity_type, payload, ts)"
-            " VALUES (?, ?, ?, ?, ?)",
-            (user_id, month, activity_type, payload[:500], now),
-        )
-
-
-def activity_count(user_id: int, month: str) -> int:
-    return int(
-        scalar(
-            "SELECT COUNT(*) FROM user_activity WHERE user_id = ? AND month = ?",
-            (user_id, month),
-        )
-    )
-
-
-def has_activity(user_id: int, month: str) -> bool:
-    return (
-        query_one(
-            "SELECT 1 FROM user_activity WHERE user_id = ? AND month = ? LIMIT 1",
-            (user_id, month),
-        )
-        is not None
-    )
-
-
-def activity_rows(
-    user_id: int | None = None,
-    month: str | None = None,
-    activity_type: str | None = None,
-    limit: int = 200,
-) -> list[sqlite3.Row]:
-    clauses: list[str] = []
-    params: list[Any] = []
-    if user_id is not None:
-        clauses.append("a.user_id = ?")
-        params.append(user_id)
-    if month:
-        clauses.append("a.month = ?")
-        params.append(month)
-    if activity_type:
-        clauses.append("a.activity_type = ?")
-        params.append(activity_type)
-    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
-    params.append(limit)
-    return query(
-        "SELECT a.*, u.uid, u.username FROM user_activity a"
-        f" LEFT JOIN users u ON u.id = a.user_id{where} ORDER BY a.id DESC LIMIT ?",
-        params,
-    )
-
-
-def activity_counts_for_month(month: str) -> dict[int, int]:
-    rows = query(
-        "SELECT user_id, COUNT(*) AS n FROM user_activity WHERE month = ? GROUP BY user_id",
-        (month,),
-    )
-    return {int(row["user_id"]): int(row["n"]) for row in rows}
+    return min(available, key=lambda pair: int(pair["member_count"]))
 
 
 # --------------------------------------------------------------------------- #
@@ -942,7 +1067,12 @@ def get_bank_details(user_id: int) -> sqlite3.Row | None:
 def save_bank_details(
     user_id: int, full_name: str, account_number: str, ifsc: str, upi_id: str
 ) -> bool:
-    """Insert bank details. Returns False if the user already submitted once."""
+    """Insert bank details. Returns False if the user already submitted once.
+
+    One account per public ID, fixed for good: there is no update path here on
+    purpose, so the destination of a payout cannot be changed by whoever holds
+    the Telegram account at payout time.
+    """
     with connect(write=True) as conn:
         existing = conn.execute(
             "SELECT 1 FROM bank_details WHERE user_id = ?", (user_id,)
@@ -952,23 +1082,35 @@ def save_bank_details(
         conn.execute(
             "INSERT INTO bank_details(user_id, full_name, account_number, ifsc, upi_id,"
             " submitted_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (user_id, full_name, account_number, ifsc.upper(), upi_id, iso_utc()),
+            (user_id, full_name, account_number, ifsc.upper(), upi_id, epoch()),
         )
         return True
 
 
 def list_bank_details(limit: int = 500) -> list[sqlite3.Row]:
     return query(
-        "SELECT b.*, u.uid, u.username FROM bank_details b"
+        "SELECT b.*, u.uid FROM bank_details b"
         " LEFT JOIN users u ON u.id = b.user_id ORDER BY b.submitted_at DESC LIMIT ?",
         (limit,),
     )
 
 
-def users_without_bank_details() -> list[sqlite3.Row]:
+def count_bank_details() -> int:
+    return int(scalar("SELECT COUNT(*) FROM bank_details"))
+
+
+def users_without_bank_details(limit: int = 5000) -> list[sqlite3.Row]:
+    """Verified users who still owe bank details, newest first.
+
+    Bounded on purpose: the daily DM sweep can only reach a few thousand
+    people a day at Telegram's rate limits, so loading millions would be
+    pointless as well as expensive.
+    """
     return query(
         "SELECT u.* FROM users u LEFT JOIN bank_details b ON b.user_id = u.id"
-        " WHERE b.user_id IS NULL AND u.verified = 1 AND u.duplicate = 0 AND u.banned = 0"
+        " WHERE b.user_id IS NULL AND (u.flags & ?) = ? AND (u.flags & ?) = 0"
+        " ORDER BY u.joined_at DESC LIMIT ?",
+        (F_VERIFIED, F_VERIFIED, F_DUPLICATE | F_BANNED, limit),
     )
 
 
@@ -978,31 +1120,36 @@ def users_without_bank_details() -> list[sqlite3.Row]:
 
 def get_withdrawal(user_id: int, month: str) -> sqlite3.Row | None:
     return query_one(
-        "SELECT * FROM withdrawals WHERE user_id = ? AND month = ?", (user_id, month)
+        "SELECT * FROM withdrawals WHERE user_id = ? AND month = ?",
+        (user_id, month_to_int(month)),
     )
 
 
 def create_withdrawal(user_id: int, month: str, amount: float) -> sqlite3.Row | None:
+    month_i = month_to_int(month)
     with connect(write=True) as conn:
         existing = conn.execute(
-            "SELECT * FROM withdrawals WHERE user_id = ? AND month = ?", (user_id, month)
+            "SELECT * FROM withdrawals WHERE user_id = ? AND month = ?", (user_id, month_i)
         ).fetchone()
         if existing is not None:
             return None
-        conn.execute(
-            "INSERT INTO withdrawals(user_id, month, amount, status, created_at)"
-            " VALUES (?, ?, ?, 'pending', ?)",
-            (user_id, month, amount, iso_utc()),
-        )
+        try:
+            conn.execute(
+                "INSERT INTO withdrawals(user_id, month, amount, status, created_at)"
+                " VALUES (?, ?, ?, 'pending', ?)",
+                (user_id, month_i, amount, epoch()),
+            )
+        except sqlite3.IntegrityError:
+            return None  # two requests raced; UNIQUE(user_id, month) settled it
         return conn.execute(
-            "SELECT * FROM withdrawals WHERE user_id = ? AND month = ?", (user_id, month)
+            "SELECT * FROM withdrawals WHERE user_id = ? AND month = ?", (user_id, month_i)
         ).fetchone()
 
 
 def set_withdrawal_status(withdrawal_id: int, status: str, note: str = "") -> None:
     execute(
         "UPDATE withdrawals SET status = ?, processed_at = ?, note = ? WHERE id = ?",
-        (status, iso_utc(), note or None, withdrawal_id),
+        (status, epoch(), note or None, withdrawal_id),
     )
 
 
@@ -1011,13 +1158,13 @@ def list_withdrawals(month: str | None = None, status: str | None = None) -> lis
     params: list[Any] = []
     if month:
         clauses.append("w.month = ?")
-        params.append(month)
+        params.append(month_to_int(month))
     if status and status != "all":
         clauses.append("w.status = ?")
         params.append(status)
     where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
     return query(
-        "SELECT w.*, u.uid, u.username, b.full_name, b.account_number, b.ifsc, b.upi_id"
+        "SELECT w.*, u.uid, b.full_name, b.account_number, b.ifsc, b.upi_id"
         " FROM withdrawals w"
         " LEFT JOIN users u ON u.id = w.user_id"
         " LEFT JOIN bank_details b ON b.user_id = w.user_id"
@@ -1027,8 +1174,12 @@ def list_withdrawals(month: str | None = None, status: str | None = None) -> lis
 
 
 def withdrawal_months() -> list[str]:
-    rows = query("SELECT DISTINCT month FROM withdrawals ORDER BY month DESC")
-    months = [row["month"] for row in rows]
+    from app.timeutil import month_from_int
+
+    months = [
+        month_from_int(int(row["month"]))
+        for row in query("SELECT DISTINCT month FROM withdrawals ORDER BY month DESC")
+    ]
     if current_month() not in months:
         months.insert(0, current_month())
     return months
@@ -1044,7 +1195,7 @@ def add_warning(user_id: int, chat_id: int) -> int:
             "INSERT INTO warnings(user_id, chat_id, count, updated_at) VALUES (?, ?, 1, ?)"
             " ON CONFLICT(user_id, chat_id) DO UPDATE SET"
             " count = warnings.count + 1, updated_at = excluded.updated_at",
-            (user_id, chat_id, iso_utc()),
+            (user_id, chat_id, epoch()),
         )
         row = conn.execute(
             "SELECT count FROM warnings WHERE user_id = ? AND chat_id = ?",
@@ -1069,29 +1220,108 @@ def warning_count(user_id: int, chat_id: int) -> int:
     )
 
 
-def stats() -> dict[str, Any]:
+# Below this many members every aggregate is fast enough to run live, so the
+# panel always shows the truth. Above it, the whole-table scans behind the
+# leaderboard and the dashboard totals are served from a snapshot the daily
+# job refreshes, because a leaderboard does not need to be real-time and a
+# hundred-second page load does.
+LIVE_AGGREGATE_LIMIT = 20_000
+
+
+def user_count() -> int:
+    """Total members, O(1).
+
+    ``SELECT COUNT(*)`` scans the table, so the count is maintained as a
+    counter and repaired by :func:`recount_users`.
+    """
+    stored = get_setting("user_count", "")
+    if stored.isdigit():
+        return int(stored)
+    return recount_users()
+
+
+def recount_users() -> int:
+    total = int(scalar("SELECT COUNT(*) FROM users"))
+    set_setting("user_count", str(total))
+    return total
+
+
+def aggregates_are_live() -> bool:
+    return user_count() <= LIVE_AGGREGATE_LIMIT
+
+
+def cached_snapshot(key: str, compute, max_age: int = 86_400) -> tuple[Any, int]:
+    """Serve ``compute()`` from a stored snapshot. Returns ``(value, taken_at)``.
+
+    Small installs never get here — :func:`aggregates_are_live` sends them
+    down the live path — so the staleness only applies where the live query
+    would be too slow to serve anyway.
+    """
+    raw = get_setting(key, "")
+    taken = get_setting_int(f"{key}_at", 0)
+    if raw and (epoch() - taken) < max_age:
+        try:
+            return json.loads(raw), taken
+        except json.JSONDecodeError:
+            pass
+    value = compute()
+    now = epoch()
+    set_setting(key, json.dumps(value))
+    set_setting(f"{key}_at", str(now))
+    return value, now
+
+
+def refresh_snapshots() -> None:
+    """Recompute the cached aggregates. Called by the daily job."""
+    from app import earnings
+
+    recount_users()
+    cached_snapshot("stats_cache", compute_stats, max_age=0)
+    month = current_month()
+    cached_snapshot(
+        "totals_cache", lambda: earnings.compute_month_totals(month), max_age=0
+    )
+    cached_snapshot("board_cache", lambda: earnings.compute_board(month), max_age=0)
+
+
+def db_size_bytes() -> int:
+    path = Path(settings.db_path)
+    total = 0
+    for suffix in ("", "-wal", "-shm"):
+        candidate = Path(str(path) + suffix)
+        if candidate.exists():
+            total += candidate.stat().st_size
+    return total
+
+
+def compute_stats() -> dict[str, Any]:
+    """The real counts. Whole-table scans, so callers go through stats()."""
+    users = user_count()
+    size = db_size_bytes()
     return {
-        "users": count_users(),
-        "verified": count_users("verified = 1 AND duplicate = 0"),
-        "unverified": count_users("verified = 0"),
-        "duplicates": count_users("duplicate = 1"),
-        "banned": count_users("banned = 1"),
+        "users": users,
+        "verified": count_users("(flags & ?) = ?", (F_VERIFIED, F_VERIFIED)),
+        "unverified": count_users("(flags & ?) = 0", (F_VERIFIED,)),
+        "duplicates": count_users("(flags & ?) <> 0", (F_DUPLICATE,)),
+        "banned": count_users("(flags & ?) <> 0", (F_BANNED,)),
         "bots": int(scalar("SELECT COUNT(*) FROM bots")),
         "bots_running": int(scalar("SELECT COUNT(*) FROM bots WHERE status = 'running'")),
         "chats": int(scalar("SELECT COUNT(DISTINCT chat_id) FROM chats")),
         "pairs": int(scalar("SELECT COUNT(*) FROM pairs")),
-        "bank_details": int(scalar("SELECT COUNT(*) FROM bank_details")),
-        "activity_this_month": int(
-            scalar(
-                "SELECT COUNT(DISTINCT user_id) FROM user_activity WHERE month = ?",
-                (current_month(),),
-            )
-        ),
+        "bank_details": count_bank_details(),
+        "activity_this_month": active_user_count(),
         "pending_withdrawals": int(
             scalar("SELECT COUNT(*) FROM withdrawals WHERE status = 'pending'")
         ),
+        "db_bytes": size,
+        "bytes_per_user": round(size / users) if users else 0,
     }
 
 
-def iter_all(rows: Iterable[sqlite3.Row]) -> list[dict[str, Any]]:
-    return [dict(row) for row in rows]
+def stats() -> dict[str, Any]:
+    """Dashboard counts — live when that is cheap, snapshotted when it is not."""
+    if aggregates_are_live():
+        return compute_stats()
+    value, taken = cached_snapshot("stats_cache", compute_stats)
+    value["snapshot_at"] = taken
+    return value

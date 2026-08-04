@@ -60,7 +60,7 @@ PROMPTS = {
 
 async def _start_form(user_id: int, answer, state: FSMContext) -> None:
     user = db.get_user(user_id)
-    if user is None or not user["verified"]:
+    if user is None or not db.has_flag(user, db.F_VERIFIED):
         await answer("Verify first: send /start and tap the button.")
         return
 

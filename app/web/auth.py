@@ -19,6 +19,53 @@ from app.config import settings
 COOKIE_NAME = "admin_session"
 SESSION_TTL = 12 * 60 * 60  # 12 hours
 
+# Login throttling. nginx rate-limits /admin/login too, but the app must not
+# depend on the proxy being configured: a single shared token is the only
+# thing between the internet and every payout, so guessing has to be slow
+# even if someone reaches uvicorn directly.
+MAX_ATTEMPTS = 8
+LOCKOUT_SECONDS = 300
+_attempts: dict[str, list[float]] = {}
+
+
+def client_key(request: Request) -> str:
+    """Best-effort caller identity for throttling.
+
+    X-Forwarded-For is only trusted for the last hop, which is our own nginx;
+    a forged header can at worst lock out the forger.
+    """
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()[:64]
+    return request.client.host if request.client else "unknown"
+
+
+def _recent_failures(key: str) -> list[float]:
+    now = time.time()
+    tries = [stamp for stamp in _attempts.get(key, []) if now - stamp < LOCKOUT_SECONDS]
+    if tries:
+        _attempts[key] = tries
+    else:
+        _attempts.pop(key, None)
+    return tries
+
+
+def is_locked_out(request: Request) -> int:
+    """Seconds remaining before this caller may try again (0 = allowed)."""
+    tries = _recent_failures(client_key(request))
+    if len(tries) < MAX_ATTEMPTS:
+        return 0
+    return int(LOCKOUT_SECONDS - (time.time() - tries[0])) + 1
+
+
+def record_failure(request: Request) -> None:
+    key = client_key(request)
+    _attempts.setdefault(key, []).append(time.time())
+
+
+def clear_failures(request: Request) -> None:
+    _attempts.pop(client_key(request), None)
+
 
 def _sign(payload: str) -> str:
     digest = hmac.new(

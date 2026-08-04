@@ -22,6 +22,19 @@ def test_uid_shape_and_uniqueness():
         assert ids.UID_RE.match(uid)
 
 
+def test_uid_allocation_retries_past_a_collision(monkeypatch, world):
+    """36^6 is 2.18 billion, so collisions are ordinary at scale, not fatal."""
+    taken = str(db.get_user(5001)["uid"])
+    handed_out = [taken, taken, "UID-FRESH1"]
+
+    monkeypatch.setattr(ids, "random_uid", lambda: handed_out.pop(0))
+    monkeypatch.setattr("app.db.random_uid", lambda: handed_out.pop(0))
+
+    created = db.create_user(9001)
+    assert created["uid"] == "UID-FRESH1"
+    assert handed_out == []  # both duplicates were tried and rejected
+
+
 def test_uid_normalisation_accepts_every_spelling():
     assert ids.normalise_uid("UID-A1B2C3") == "UID-A1B2C3"
     assert ids.normalise_uid("uida1b2c3") == "UID-A1B2C3"
@@ -42,7 +55,8 @@ def test_referral_payload_round_trip():
 def test_phone_hash_ignores_formatting_but_separates_numbers():
     assert ids.hash_phone("+91 98765-43210") == ids.hash_phone("919876543210")
     assert ids.hash_phone("919876543210") != ids.hash_phone("919876543211")
-    assert len(ids.hash_phone("919876543210")) == 64
+    assert isinstance(ids.hash_phone("919876543210"), bytes)
+    assert len(ids.hash_phone("919876543210")) == ids.PHONE_HASH_BYTES
     with pytest.raises(ValueError):
         ids.hash_phone("no digits here")
 
@@ -53,42 +67,41 @@ def test_phone_hash_ignores_formatting_but_separates_numbers():
 
 def test_start_is_idempotent_and_never_rewrites_a_referrer(world):
     referrer, _, _ = world
-    first = db.create_user(7001, "carol", "Carol", str(referrer["uid"]))
-    again = db.create_user(7001, "carol2", "Carol Two", "UID-ZZZZZZ")
+    first = db.create_user(7001, referred_by=str(referrer["uid"]))
+    again = db.create_user(7001, referred_by="UID-ZZZZZZ")
 
     assert first["uid"] == again["uid"]
-    assert again["referred_by_uid"] == referrer["uid"]
-    assert again["username"] == "carol2"  # profile fields do refresh
+    assert again["referred_by"] == referrer["uid"]
     assert db.count_users("id = 7001") == 1
 
 
 def test_a_late_referrer_can_still_be_recorded(world):
     referrer, _, _ = world
-    db.create_user(7002, "dave", "Dave", None)
-    db.create_user(7002, "dave", "Dave", str(referrer["uid"]))
-    assert db.get_user(7002)["referred_by_uid"] == referrer["uid"]
+    db.create_user(7002)
+    db.create_user(7002, referred_by=str(referrer["uid"]))
+    assert db.get_user(7002)["referred_by"] == referrer["uid"]
 
 
 def test_one_phone_hash_cannot_belong_to_two_accounts(world):
     import sqlite3
 
-    db.create_user(7003, "eve", "Eve", None)
+    db.create_user(7003)
     with pytest.raises(sqlite3.IntegrityError):
-        db.set_user_fields(7003, phone_hash="hash-alice")  # already Alice's
+        db.set_user_fields(7003, phone_hash=b"hash-alice-0000")  # already Alice's
 
 
 def test_duplicate_is_flagged_banned_and_detached_from_its_referrer(world):
     referrer, _, _ = world
-    duplicate = db.create_user(7004, "mallory", "Mallory", str(referrer["uid"]))
+    duplicate = db.create_user(7004, referred_by=str(referrer["uid"]))
     assert len(db.referrals_of(str(referrer["uid"]))) == 2
 
     asyncio.run(handle_duplicate(duplicate, referrer))
 
     row = db.get_user(7004)
-    assert row["duplicate"] == 1
-    assert row["banned"] == 1
-    assert row["verified"] == 0
-    assert row["referred_by_uid"] is None
+    assert db.has_flag(row, db.F_DUPLICATE)
+    assert db.has_flag(row, db.F_BANNED)
+    assert not db.has_flag(row, db.F_VERIFIED)
+    assert row["referred_by"] is None
     assert row["pair_id"] is None
     # It has vanished from the referrer's list entirely.
     assert [r["id"] for r in db.referrals_of(str(referrer["uid"]))] == [5002]
@@ -118,6 +131,7 @@ def test_placement_falls_back_to_the_default_pair(world):
 def test_a_full_pair_is_skipped_for_the_least_loaded_one(world):
     _, _, pair = world
     db.update_pair(int(pair["pair_id"]), capacity=2)  # alice + bob fill it
+    pair = db.get_pair(int(pair["pair_id"]))
 
     db.add_chat(chat_id=-200_1, bot_id=1, chat_type="group", title="Group B")
     db.add_chat(chat_id=-200_2, bot_id=1, chat_type="channel", title="Channel B")

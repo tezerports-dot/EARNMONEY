@@ -34,30 +34,61 @@ async def assign_pair_and_links(
     pair = db.get_pair(int(user["pair_id"])) if user["pair_id"] else None
     if pair is None or pair["closed"]:
         referrer_pair_id = None
-        if user["referred_by_uid"]:
-            referrer = db.get_user_by_uid(str(user["referred_by_uid"]))
+        if user["referred_by"]:
+            referrer = db.get_user_by_uid(str(user["referred_by"]))
             if referrer is not None and referrer["pair_id"]:
                 referrer_pair_id = int(referrer["pair_id"])
         pair = db.choose_pair(referrer_pair_id)
         if pair is None:
             log.warning("no usable pair configured; user %s left unplaced", uid)
             return None, None, None
-        db.set_user_fields(user_id, pair_id=int(pair["pair_id"]))
+        db.assign_pair(user_id, int(pair["pair_id"]))
         db.log_event("pair_assigned", user_id, f"pair={pair['pair_id']}")
+        user = db.get_user(user_id) or user
 
-    group_link = await _link_for(pair["group_chat_id"], uid, user_id)
-    channel_link = await _link_for(pair["channel_chat_id"], uid, user_id)
+    group_link = await _link_for(
+        pair["group_chat_id"], uid, user_id, user["group_invite"], "group_invite"
+    )
+    channel_link = await _link_for(
+        pair["channel_chat_id"], uid, user_id, user["chan_invite"], "chan_invite"
+    )
     return pair, group_link, channel_link
 
 
-async def _link_for(chat_id: int | None, uid: str, user_id: int) -> str | None:
+async def _link_for(
+    chat_id: int | None, uid: str, user_id: int, cached: str | None, column: str
+) -> str | None:
+    """Return the user's personal invite URL for one chat.
+
+    Only the short hash is kept on the user row; the ``https://t.me/+`` prefix
+    is the same for every link and costs nothing to re-add.
+    """
     if not chat_id:
         return None
+    if cached:
+        return expand_invite(cached)
+
     bot = bot_for_chat(int(chat_id))
     if bot is None:
         log.warning("no running bot is admin in chat %s; cannot issue invite", chat_id)
         return None
-    return await ensure_personal_invite(bot, int(chat_id), uid, user_id)
+    link = await ensure_personal_invite(bot, int(chat_id), uid)
+    if link is None:
+        return None
+    db.set_user_fields(user_id, **{column: shrink_invite(link)})
+    return link
+
+
+def shrink_invite(url: str) -> str:
+    """``https://t.me/+AbCdEf`` → ``AbCdEf`` (or a full URL if it is unusual)."""
+    for prefix in ("https://t.me/+", "https://t.me/joinchat/"):
+        if url.startswith(prefix):
+            return url[len(prefix):]
+    return url
+
+
+def expand_invite(stored: str) -> str:
+    return stored if "://" in stored else f"https://t.me/+{stored}"
 
 
 async def handle_duplicate(user: sqlite3.Row, original: sqlite3.Row) -> None:
@@ -67,9 +98,9 @@ async def handle_duplicate(user: sqlite3.Row, original: sqlite3.Row) -> None:
     from its referrer so it stops appearing in anyone's referral list.
     """
     user_id = int(user["id"])
-    db.set_user_fields(
-        user_id, duplicate=1, banned=1, verified=0, referred_by_uid=None, pair_id=None
-    )
+    db.set_flags(user_id, duplicate=True, banned=True, verified=False)
+    db.set_user_fields(user_id, referred_by=None)
+    db.clear_pair(user_id)
     db.log_event(
         "duplicate_phone",
         user_id,
@@ -114,7 +145,12 @@ async def daily_bank_prompt() -> dict[str, int]:
 
     dm_sent = 0
     if db.get_setting_bool("daily_prompt_dm", True):
-        for user in db.users_without_bank_details():
+        # Bounded: Telegram caps outbound DMs at roughly 30/second, so a sweep
+        # can realistically reach a few thousand people a day however many
+        # members there are. The list is newest-first, so new joiners are
+        # always the ones chased.
+        budget = db.get_setting_int("daily_prompt_dm_limit", 2000)
+        for user in db.users_without_bank_details(limit=budget):
             bot = _dm_bot()
             if bot is None:
                 break

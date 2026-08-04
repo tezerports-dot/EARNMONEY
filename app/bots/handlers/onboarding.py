@@ -22,7 +22,7 @@ from app.bots.common import (
     referral_link,
     share_keyboard,
 )
-from app.bots.services import assign_pair_and_links, handle_duplicate
+from app.bots.services import assign_pair_and_links, expand_invite, handle_duplicate
 from app.bots.telegram_utils import esc
 from app.earnings import rates
 from app.ids import hash_phone, parse_referral_payload
@@ -48,13 +48,13 @@ async def cmd_start(
     if referrer is not None and existing is not None and int(referrer["id"]) == int(existing["id"]):
         await message.answer("You cannot refer yourself 🙂 — share your link with someone else.")
         referrer = None
-    if referrer is not None and (referrer["duplicate"] or referrer["banned"]):
+    if referrer is not None and (db.has_flag(referrer, db.F_DUPLICATE) or db.has_flag(referrer, db.F_BANNED)):
         await message.answer("That referral link belongs to a blocked account, so it was ignored.")
         referrer = None
     if (
         referrer is not None
         and existing is not None
-        and referrer["referred_by_uid"] == existing["uid"]
+        and referrer["referred_by"] == existing["uid"]
     ):
         # A refers B, then A opens B's link. Accepting it would make the two
         # of them each other's upline and each other's level-2 downline.
@@ -65,16 +65,16 @@ async def cmd_start(
 
     user = ensure_user(
         message.from_user,
-        referred_by_uid=str(referrer["uid"]) if referrer is not None else None,
+        referred_by=str(referrer["uid"]) if referrer is not None else None,
     )
 
-    if user["banned"] or user["duplicate"]:
+    if db.has_flag(user, db.F_BANNED) or db.has_flag(user, db.F_DUPLICATE):
         await message.answer(
             "🚫 This account is blocked. If you think that is a mistake, contact an admin."
         )
         return
 
-    if user["verified"]:
+    if db.has_flag(user, db.F_VERIFIED):
         await send_account_card(message, bot, refresh_links=True)
         return
 
@@ -107,7 +107,7 @@ async def on_contact(message: Message, bot: Bot) -> None:
     user = ensure_user(message.from_user)
     user_id = int(user["id"])
 
-    if user["banned"] or user["duplicate"]:
+    if db.has_flag(user, db.F_BANNED) or db.has_flag(user, db.F_DUPLICATE):
         await message.answer("🚫 This account is blocked.", reply_markup=ReplyKeyboardRemove())
         return
 
@@ -129,9 +129,10 @@ async def on_contact(message: Message, bot: Bot) -> None:
         )
         return
 
-    if not user["verified"]:
+    if not db.has_flag(user, db.F_VERIFIED):
         try:
-            db.set_user_fields(user_id, phone_hash=phone_hash, verified=1)
+            db.set_user_fields(user_id, phone_hash=phone_hash)
+            db.set_flags(user_id, verified=True)
         except sqlite3.IntegrityError:
             # Two accounts raced to claim the same number; the UNIQUE index on
             # phone_hash is the real arbiter, so the loser is the duplicate.
@@ -166,14 +167,13 @@ async def send_account_card(
 
     group_link = channel_link = None
     pair = None
-    if refresh_links and user["verified"]:
+    if refresh_links and db.has_flag(user, db.F_VERIFIED):
         pair, group_link, channel_link = await assign_pair_and_links(user)
         user = db.get_user(int(user["id"])) or user
     elif user["pair_id"]:
         pair = db.get_pair(int(user["pair_id"]))
-        if pair is not None:
-            group_link = db.get_invite_link(int(user["id"]), int(pair["group_chat_id"] or 0))
-            channel_link = db.get_invite_link(int(user["id"]), int(pair["channel_chat_id"] or 0))
+        group_link = expand_invite(user["group_invite"]) if user["group_invite"] else None
+        channel_link = expand_invite(user["chan_invite"]) if user["chan_invite"] else None
 
     link = await referral_link(bot, str(user["uid"]))
     header = "🎉 <b>You are in!</b>" if first_time else "👤 <b>Your account</b>"
@@ -231,7 +231,7 @@ async def cmd_link(message: Message, bot: Bot) -> None:
     if message.from_user is None:
         return
     user = db.get_user(message.from_user.id)
-    if user is None or not user["verified"]:
+    if user is None or not db.has_flag(user, db.F_VERIFIED):
         await message.answer(
             "You need to verify first — tap the button below.",
             reply_markup=contact_keyboard(),
@@ -250,7 +250,7 @@ async def cmd_me(message: Message, bot: Bot) -> None:
     if message.from_user is None:
         return
     user = db.get_user(message.from_user.id)
-    if user is None or not user["verified"]:
+    if user is None or not db.has_flag(user, db.F_VERIFIED):
         await message.answer(
             "You are not verified yet. Tap the button below to finish in one step.",
             reply_markup=contact_keyboard(),
@@ -265,7 +265,7 @@ async def cb_link(callback: CallbackQuery, bot: Bot) -> None:
     if callback.message is None or callback.from_user is None:
         return
     user = db.get_user(callback.from_user.id)
-    if user is None or not user["verified"]:
+    if user is None or not db.has_flag(user, db.F_VERIFIED):
         await callback.message.answer(
             "Verify first — tap the button below.", reply_markup=contact_keyboard()
         )

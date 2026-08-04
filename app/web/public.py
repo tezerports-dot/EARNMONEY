@@ -8,7 +8,7 @@ from fastapi.responses import RedirectResponse
 from app import db
 from app.earnings import leaderboard, report_for
 from app.ids import normalise_uid
-from app.timeutil import current_month, recent_months
+from app.timeutil import current_month
 from app.web.templating import render
 
 router = APIRouter()
@@ -65,7 +65,6 @@ async def user_page(request: Request, uid: str, month: str = ""):
 
     month = month or current_month()
     report = report_for(user, month)
-    memberships = db.memberships_of(int(user["id"]))
     pair = db.get_pair(int(user["pair_id"])) if user["pair_id"] else None
     withdrawal = db.get_withdrawal(int(user["id"]), month)
 
@@ -74,10 +73,9 @@ async def user_page(request: Request, uid: str, month: str = ""):
         "public/user.html",
         user=user,
         report=report,
-        memberships=memberships,
         pair=pair,
         month=month,
-        months=recent_months(6),
+        months=db.activity_horizon(),
         withdrawal=withdrawal,
         has_bank=db.get_bank_details(int(user["id"])) is not None,
     )
@@ -91,7 +89,7 @@ async def board(request: Request, month: str = ""):
         "public/leaderboard.html",
         board=leaderboard(month, limit=50),
         month=month,
-        months=recent_months(6),
+        months=db.activity_horizon(),
     )
 
 
@@ -102,11 +100,15 @@ async def how_it_works(request: Request):
 
 @router.get("/healthz")
 async def healthz():
+    """Liveness only — deliberately no counts.
+
+    This endpoint is public, so it says whether the process and its bots are
+    up and nothing about how many members or rupees are in the system.
+    """
     from app.bots.manager import manager
 
     return {
         "status": "ok",
         "bots_running": len(manager.running_ids()),
         "month": current_month(),
-        **db.stats(),
     }

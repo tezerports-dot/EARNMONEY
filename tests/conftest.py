@@ -52,11 +52,15 @@ def world():
     db.set_default_pair(pair_id)
     db.set_primary_pair(pair_id)
 
-    referrer = db.create_user(5001, "alice", "Alice", None)
-    db.set_user_fields(5001, verified=1, phone_hash="hash-alice", pair_id=pair_id)
+    referrer = db.create_user(5001)
+    db.set_user_fields(5001, phone_hash=b"hash-alice-0000")
+    db.set_flags(5001, verified=True)
+    db.assign_pair(5001, pair_id)
 
-    db.create_user(5002, "bob", "Bob", str(referrer["uid"]))
-    db.set_user_fields(5002, verified=1, phone_hash="hash-bob", pair_id=pair_id)
+    db.create_user(5002, referred_by=str(referrer["uid"]))
+    db.set_user_fields(5002, phone_hash=b"hash-bob-00000")
+    db.set_flags(5002, verified=True)
+    db.assign_pair(5002, pair_id)
 
     return db.get_user(5001), db.get_user(5002), db.get_pair(pair_id)
 
@@ -67,5 +71,9 @@ def month() -> str:
 
 
 def join_both(user_id: int) -> None:
-    db.set_membership(user_id, -100_1, "group", "member")
-    db.set_membership(user_id, -100_2, "channel", "member")
+    db.set_membership(user_id, -100_1, True)
+    db.set_membership(user_id, -100_2, True)
+
+
+def leave(user_id: int, chat_id: int) -> None:
+    db.set_membership(user_id, chat_id, False)

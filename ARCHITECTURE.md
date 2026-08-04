@@ -71,18 +71,27 @@ Registration order inside an observer decides which handler wins, and
 
 ## 2. Data model
 
-`app/db.py` holds the schema. Deviations from a plain reading of the spec, and
-why:
+`app/db.py` holds the schema. The governing rule is **store only what a payout needs**. Measured cost is
+187 bytes per member — 5.6 GB at 30 million. See
+[docs/SCALING.md](docs/SCALING.md) for the measurements and the trade-offs.
 
 | Table | Note |
 |---|---|
-| `users.id` | **Is the Telegram user id.** Telegram ids are global, so every bot in the fleet sees the same id for the same person and `memberships`, `user_activity`, `bank_details` and `withdrawals` all key off it without a mapping table. |
-| `users.full_name`, `banned` | Added: the moderation bot needs a display name and a fleet-wide ban flag distinct from `duplicate`. |
-| `bots.role` | Added: this is what makes "several bots doing different jobs" possible. Also `username`, `telegram_id`, `last_error` for the panel. |
-| `pairs.capacity`, `closed` | Added: needed to implement "if the referrer's pair is full/closed → least loaded". |
-| `invite_links` | Added: maps a personal invite URL back to its owner, which is how invite-link attribution works. |
-| `warnings` | Added: per-chat warning counters for the moderation escalation. |
-| `settings` | Added: runtime-editable thresholds and message texts, so tuning the flood limit does not need a deploy. |
+| `users.id` | **Is the Telegram user id.** Telegram ids are global, so every bot in the fleet sees the same id for the same person and `bank_details` and `withdrawals` key off it without a mapping table. |
+| `users.flags` | Five booleans — verified, duplicate, banned, in-group, in-channel — packed into one integer. The last two replace a whole `memberships` table: a member belongs to exactly one pair, so their membership *is* two bits. |
+| `users.active_month`, `prev_month` | The entire activity record, two integers. See §7. |
+| `users.phone_hash` | A 16-byte truncated SHA-256 as a BLOB, not 64 hex characters. Its only job is rejecting a second account; at 30M members a collision is ~1 in 10²³. |
+| `users.group_invite`, `chan_invite` | Just the link *hash*; the `https://t.me/+` prefix is constant. Replaces an `invite_links` table of two rows per member. |
+| `bots.role` | This is what makes "several bots doing different jobs" possible. Also `username`, `telegram_id`, `last_error`. |
+| `pairs.capacity`, `closed`, `member_count` | Placement needs "full/closed → least loaded"; `member_count` is maintained incrementally so choosing a pair never counts rows. |
+| `warnings` | Per-chat moderation counters. `WITHOUT ROWID`, pruned after 90 days. |
+| `settings` | Runtime-editable thresholds, message texts, payout rates and the cached dashboard snapshots. |
+
+**What is deliberately absent:** no `user_activity` log, no `memberships`
+table, no `invite_links` table, and no usernames, display names, message
+counts or last-seen timestamps. Telegram sends the current display name with
+every update, so the bots read it live rather than storing it — smaller *and*
+less personal data held.
 
 **Connections.** `db.connect()` is a context manager that opens one connection
 per operation in WAL mode with `busy_timeout=10000`. `connect(write=True)` also
@@ -97,9 +106,17 @@ anything the event loop would notice; the simplicity is worth more than a
 thread-pool hop on every query. If the database ever outgrows that, the change
 is confined to `db.py`.
 
-**Timestamps** are ISO-8601 UTC strings ending in `Z`. Month keys are derived
-in IST and stored denormalised on `user_activity.month`, so month queries are
-an index lookup rather than timezone arithmetic in SQL.
+**Timestamps** are integer unix epochs (4–6 bytes rather than 20 for an ISO
+string); `human_ist()` accepts either form. Months are stored as the integer
+`YYYYMM`, which sorts and compares like the string form at half the size.
+
+**Aggregates.** Per-request work is all index lookups and stays flat as the
+member base grows. The three whole-table aggregates — dashboard counts,
+monthly totals, leaderboard — are computed live below
+`LIVE_AGGREGATE_LIMIT` (20,000 members) and served from a snapshot the daily
+job refreshes above it, so no page view ever waits on a scan. `user_count` is
+an incrementally maintained counter, because `SELECT COUNT(*)` is itself a
+scan.
 
 ---
 
@@ -202,26 +219,40 @@ already have a referrer. The same logic runs on the join-request path.
 ## 7. Activity — what is recorded and what cannot be
 
 `app/bots/middlewares.py` is an update-level outer middleware on every bot's
-dispatcher. It records:
+dispatcher. These count as an interaction:
 
-| Signal | `activity_type` |
-|---|---|
-| Tap on a bot button | `callback` |
-| Any command | `command` |
-| Message in a managed group | `group_message` (one row per user per day) |
-| Vote in a bot-created poll | `poll_answer` |
-| Direct message to a bot | `dm` |
+* a tap on one of the bot's buttons (`callback_query`),
+* any command,
+* a message in a chat this fleet manages,
+* a vote in a poll the **bot itself** created (`poll_answer`),
+* a direct message to a bot.
 
-**Nothing records a view.** There is no Bot API event for opening a group or
-reading a channel post, so channels contribute membership only.
+**They are all recorded identically**, because the rule only ever asks
+*whether* someone interacted that month, never how often. `record_activity`
+sets two integers on the member's own row:
 
-**`poll_answer` arrives only for polls the bot created.** A poll a human posts
-generates nothing. `/poll` on the broadcast bot exists so admins always create
-polls the countable way.
+```python
+if month != active_month:
+    prev_month, active_month = active_month, month
+```
 
-The daily collapse on `group_message` is a storage optimisation with no effect
-on eligibility — one row anywhere in the month is the entire requirement, so
-1 row/day and 400 rows/day are equivalent inputs to the rule.
+Consequences worth stating:
+
+* **A member who taps a hundred buttons costs one write**, on the first tap of
+  the month. There is no per-interaction log to append to — that table was
+  measured at gigabytes per month at 30M members.
+* **History is two months deep**, current plus previous, which spans the
+  payout window. Older months answer "not active" because the data is gone;
+  `withdrawals` is the permanent record of what was paid.
+* **Nothing records a view.** There is no Bot API event for opening a group or
+  reading a channel post, so channels contribute membership only.
+* **`poll_answer` arrives only for polls the bot created.** A poll a human
+  posts generates nothing; `/poll` on the broadcast bot exists so admins
+  always create polls the countable way.
+
+Membership is the same shape: two bits in `users.flags`, set by
+`db.set_membership` when Telegram reports a join or a departure in the
+member's own group or channel.
 
 ---
 
@@ -411,7 +442,7 @@ Bot tokens are always displayed masked.
 
 ## 14. Tests
 
-`tests/` — 96 tests, no network, each on a fresh database.
+`tests/` — 122 tests, no network, each on a fresh database.
 
 * `test_activity_rules.py` — the three conditions, per-person-per-month
   (a thousand taps pay the same as one), leave/rejoin, ineligible referrer,
@@ -434,3 +465,14 @@ Bot tokens are always displayed masked.
   login, and that no secret leaks into HTML.
 * `test_routing.py` — every role builds twice (proving routers are not shared),
   and the handler-order invariants above.
+* `test_security.py` — every admin route refuses an anonymous caller, login
+  lockout, open-redirect refusal, forged and extended cookies, token redaction,
+  no PII on any public page, bank details immutable once set, one withdrawal
+  per month enforced by the schema, payouts computed from SQL counts rather
+  than a truncated display list, hostile search input, and stored-XSS escaping.
+
+`scripts/benchmark.py` is the performance counterpart: it measures bytes per
+member and per-request timings so the claims in docs/SCALING.md stay honest.
+It found two real problems — a leaderboard that ran one query per earner
+(35 s at 300k members) and UID collisions at 300k that proved the retry loop
+was load-bearing.

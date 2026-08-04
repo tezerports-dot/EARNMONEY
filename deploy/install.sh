@@ -9,7 +9,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 echo "==> Installing system packages"
 apt-get update -qq
-apt-get install -y python3 python3-venv python3-pip nginx ufw
+apt-get install -y python3 python3-venv python3-pip nginx ufw tzdata openssl
 
 echo "==> Creating service user and directories"
 id -u "$APP_USER" >/dev/null 2>&1 || useradd --system --home "$APP_DIR" --shell /usr/sbin/nologin "$APP_USER"

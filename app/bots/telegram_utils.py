@@ -78,17 +78,16 @@ def bot_for_chat(chat_id: int) -> Bot | None:
     return None
 
 
-async def ensure_personal_invite(bot: Bot, chat_id: int, uid: str, user_id: int) -> str | None:
-    """Create (once) a named invite link that identifies its owner on join.
+async def ensure_personal_invite(bot: Bot, chat_id: int, uid: str) -> str | None:
+    """Create a named invite link that identifies its owner on join.
 
     ``creates_join_request=True`` means a tap produces a join request the bot
     approves automatically — the closest thing to "auto-add" the Bot API
     offers, since no bot can add a user to a chat by itself.
-    """
-    cached = db.get_invite_link(user_id, int(chat_id))
-    if cached:
-        return cached
 
+    The link is *named* after the UID, which is what Telegram reports back on
+    join, so attribution needs nothing stored anywhere.
+    """
     link = await call_api(
         bot.create_chat_invite_link,
         chat_id=int(chat_id),
@@ -101,10 +100,7 @@ async def ensure_personal_invite(bot: Bot, chat_id: int, uid: str, user_id: int)
         link = await call_api(
             bot.create_chat_invite_link, chat_id=int(chat_id), name=uid[:32]
         )
-    if link is None:
-        return None
-    db.save_invite_link(user_id, int(chat_id), link.invite_link, uid)
-    return link.invite_link
+    return link.invite_link if link is not None else None
 
 
 async def ban_everywhere(user_id: int, reason: str = "") -> list[int]:
@@ -118,10 +114,10 @@ async def ban_everywhere(user_id: int, reason: str = "") -> list[int]:
         result = await call_api(bot.ban_chat_member, chat_id=chat_id, user_id=user_id)
         if result:
             done.append(chat_id)
-            db.set_membership(user_id, chat_id, str(row["chat_type"]), "banned")
+            db.set_membership(user_id, chat_id, False)
         await asyncio.sleep(0.1)
-    db.set_user_fields(user_id, banned=1)
-    db.log_event("ban", user_id, f"{reason} chats={done}")
+    db.set_flags(user_id, banned=True)
+    db.log_event("ban", user_id, f"{reason} chats={len(done)}")
     return done
 
 
@@ -137,10 +133,9 @@ async def unban_everywhere(user_id: int) -> list[int]:
         )
         if result:
             done.append(chat_id)
-            db.set_membership(user_id, chat_id, str(row["chat_type"]), "left")
         await asyncio.sleep(0.1)
-    db.set_user_fields(user_id, banned=0)
-    db.log_event("unban", user_id, f"chats={done}")
+    db.set_flags(user_id, banned=False)
+    db.log_event("unban", user_id, f"chats={len(done)}")
     return done
 
 

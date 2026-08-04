@@ -34,17 +34,16 @@
 <h2>Still missing <span class="muted small">({{ missing | length }})</span></h2>
 <div class="card table-scroll">
   <table>
-    <thead><tr><th>ID</th><th>Name</th><th>Telegram</th><th>Joined</th></tr></thead>
+    <thead><tr><th>ID</th><th>Telegram</th><th>Joined</th></tr></thead>
     <tbody>
     {% for user in missing %}
       <tr>
         <td><a href="/admin/users/{{ user.uid }}"><code>{{ user.uid }}</code></a></td>
-        <td>{{ user.full_name or user.username or '—' }}</td>
         <td class="mono small">{{ user.id }}</td>
         <td class="small muted">{{ user.joined_at | ist }}</td>
       </tr>
     {% else %}
-      <tr><td colspan="4" class="muted">Everyone verified has submitted.</td></tr>
+      <tr><td colspan="3" class="muted">Everyone verified has submitted.</td></tr>
     {% endfor %}
     </tbody>
   </table>

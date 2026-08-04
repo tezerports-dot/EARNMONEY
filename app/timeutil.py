@@ -46,8 +46,20 @@ def parse_iso(value: str | None) -> datetime | None:
     return dt
 
 
-def to_ist(value: str | datetime | None) -> datetime | None:
-    dt = parse_iso(value) if isinstance(value, str) else value
+def to_ist(value: str | int | float | datetime | None) -> datetime | None:
+    """Accept an ISO string, a unix epoch, or a datetime.
+
+    Most timestamps are stored as integer epochs (4-6 bytes instead of 20),
+    so both forms turn up.
+    """
+    if isinstance(value, str):
+        dt = parse_iso(value)
+    elif isinstance(value, bool):  # bool is an int subclass; never a timestamp
+        return None
+    elif isinstance(value, (int, float)):
+        dt = datetime.fromtimestamp(value, tz=timezone.utc)
+    else:
+        dt = value
     if dt is None:
         return None
     if dt.tzinfo is None:
@@ -65,6 +77,25 @@ def month_key(value: str | datetime | None = None) -> str:
 
 def current_month() -> str:
     return now_ist().strftime("%Y-%m")
+
+
+# Months are stored in the database as the integer YYYYMM (202608). It sorts
+# and compares like the string form but costs 3 bytes instead of 7, which
+# matters on a column that exists once per user.
+
+def month_to_int(month: str) -> int:
+    year, mon = month.split("-")
+    return int(year) * 100 + int(mon)
+
+
+def month_from_int(value: int | None) -> str:
+    if not value:
+        return ""
+    return f"{value // 100:04d}-{value % 100:02d}"
+
+
+def current_month_int() -> int:
+    return month_to_int(current_month())
 
 
 def month_bounds(month: str) -> tuple[datetime, datetime]:

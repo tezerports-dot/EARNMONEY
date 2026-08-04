@@ -6,11 +6,10 @@
 {% set st = report.referrer_status %}
 <h1>{{ user.uid }}</h1>
 <p class="sub">
-  {{ user.full_name or user.username or "Member" }} ·
   joined {{ user.joined_at | ist }}
-  {% if user.verified %}<span class="pill ok">verified</span>{% else %}<span class="pill warn">unverified</span>{% endif %}
-  {% if user.duplicate %}<span class="pill bad">duplicate</span>{% endif %}
-  {% if user.banned %}<span class="pill bad">banned</span>{% endif %}
+  {% if st.verified %}<span class="pill ok">verified</span>{% else %}<span class="pill warn">unverified</span>{% endif %}
+  {% if st.duplicate %}<span class="pill bad">duplicate</span>{% endif %}
+  {% if st.banned %}<span class="pill bad">banned</span>{% endif %}
 </p>
 
 <form class="search" method="get" action="/u/{{ user.uid }}">
@@ -39,7 +38,7 @@
     <table>
       <tr><td>In their group</td><td>{% if st.in_group %}<span class="pill ok">yes</span>{% else %}<span class="pill bad">no</span>{% endif %}</td></tr>
       <tr><td>In their channel</td><td>{% if st.in_channel %}<span class="pill ok">yes</span>{% else %}<span class="pill bad">no</span>{% endif %}</td></tr>
-      <tr><td>Interactions in {{ month }}</td><td class="mono">{{ st.interactions }}</td></tr>
+      <tr><td>Interacted in {{ month }}</td><td>{% if st.has_interaction %}<span class="pill ok">yes</span>{% else %}<span class="pill bad">not yet</span>{% endif %}</td></tr>
       <tr><td>Counted as active</td><td>{% if st.active %}<span class="pill ok">yes</span>{% else %}<span class="pill bad">no — {{ st.reason }}</span>{% endif %}</td></tr>
       <tr><td>Bank details on file</td><td>{% if has_bank %}<span class="pill ok">yes</span>{% else %}<span class="pill warn">not yet</span>{% endif %}</td></tr>
       {% if withdrawal %}<tr><td>Payout request</td><td><span class="pill info">{{ withdrawal.status }}</span> ₹{{ '%g' % withdrawal.amount }}</td></tr>{% endif %}
@@ -54,24 +53,13 @@
     <h3>Placement</h3>
     {% if pair %}<p class="small">Set: <b>{{ pair.title or ('pair ' ~ pair.pair_id) }}</b></p>{% else %}<p class="small muted">Not placed in a group/channel pair yet.</p>{% endif %}
     <table>
-      <thead><tr><th>Chat</th><th>Type</th><th>Status</th><th>Since</th></tr></thead>
+      <thead><tr><th>Chat</th><th>Status</th></tr></thead>
       <tbody>
-      {% for m in memberships %}
-        <tr>
-          <td>{{ m.title or m.chat_id }}</td>
-          <td>{{ m.chat_type }}</td>
-          <td>
-            {% if m.status == 'member' %}<span class="pill ok">member</span>
-            {% elif m.status == 'banned' %}<span class="pill bad">banned</span>
-            {% else %}<span class="pill warn">{{ m.status }}</span>{% endif %}
-          </td>
-          <td class="small muted">{{ (m.joined_at or m.left_at) | ist }}</td>
-        </tr>
-      {% else %}
-        <tr><td colspan="4" class="muted">No memberships recorded.</td></tr>
-      {% endfor %}
+        <tr><td>Group</td><td>{% if st.in_group %}<span class="pill ok">member</span>{% else %}<span class="pill bad">not a member</span>{% endif %}</td></tr>
+        <tr><td>Channel</td><td>{% if st.in_channel %}<span class="pill ok">member</span>{% else %}<span class="pill bad">not a member</span>{% endif %}</td></tr>
       </tbody>
     </table>
+    <p class="small muted">Everyone belongs to exactly one group and one channel, so those two are the whole picture.</p>
   </div>
 </div>
 
@@ -79,24 +67,23 @@
 <div class="card table-scroll">
   <table>
     <thead>
-      <tr><th>ID</th><th>Name</th>{% if show_via %}<th>Invited by</th>{% endif %}
+      <tr><th>ID</th>{% if show_via %}<th>Invited by</th>{% endif %}
           <th>Joined</th><th>Group</th><th>Channel</th>
-          <th class="num">Interactions</th><th>Status</th></tr>
+          <th>Interacted</th><th>Status</th></tr>
     </thead>
     <tbody>
     {% for row in rows %}
       <tr>
         <td><a href="/u/{{ row.user.uid }}"><code>{{ row.user.uid }}</code></a></td>
-        <td>{{ row.name }}</td>
         {% if show_via %}<td class="small"><a href="/u/{{ row.via_uid }}"><code>{{ row.via_uid }}</code></a></td>{% endif %}
         <td class="small muted">{{ row.user.joined_at | ist }}</td>
         <td>{% if row.status.in_group %}✅{% else %}❌{% endif %}</td>
         <td>{% if row.status.in_channel %}✅{% else %}❌{% endif %}</td>
-        <td class="num">{{ row.status.interactions }}</td>
+        <td>{% if row.status.has_interaction %}✅{% else %}❌{% endif %}</td>
         <td>{% if row.status.active %}<span class="pill ok">active · ₹{{ '%g' % row.amount }}</span>{% else %}<span class="pill">{{ row.status.reason }}</span>{% endif %}</td>
       </tr>
     {% else %}
-      <tr><td colspan="{{ 8 if show_via else 7 }}" class="muted">{{ empty }}</td></tr>
+      <tr><td colspan="{{ 7 if show_via else 6 }}" class="muted">{{ empty }}</td></tr>
     {% endfor %}
     </tbody>
   </table>

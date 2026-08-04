@@ -1,8 +1,13 @@
 """Membership tracking — the backbone of the activity rule.
 
 Every bot in the fleet runs this router, so a chat covered by any one of them
-keeps an accurate ``memberships`` table. Telegram sends ``chat_member`` only
-to bots that are administrators in the chat.
+keeps the two membership bits accurate. Telegram sends ``chat_member`` only to
+bots that are administrators in the chat.
+
+A user belongs to exactly one pair, so membership is two bits on their row
+rather than a table: joining their group sets one, joining their channel sets
+the other, leaving either clears it. Nothing else is recorded — not the join
+time, not the history — because nothing else affects a payout.
 """
 
 from __future__ import annotations
@@ -14,8 +19,8 @@ from aiogram.enums import ChatMemberStatus, ChatType
 from aiogram.types import ChatJoinRequest, ChatMemberUpdated
 
 from app import db
-from app.bots.routerspec import RouterSpec
 from app.bots.common import ensure_user
+from app.bots.routerspec import RouterSpec
 from app.bots.telegram_utils import call_api, esc
 
 log = logging.getLogger("bots.membership")
@@ -33,71 +38,58 @@ def _chat_kind(chat_type: str) -> str:
     return "channel" if chat_type == ChatType.CHANNEL else "group"
 
 
-def _status_of(update: ChatMemberUpdated) -> str:
+def _is_in(update: ChatMemberUpdated) -> bool:
+    """Is the user in the chat after this transition?"""
     new = update.new_chat_member
-    status = new.status
-    if status in MEMBER_STATES:
-        return "member"
-    if status == ChatMemberStatus.RESTRICTED:
+    if new.status in MEMBER_STATES:
+        return True
+    if new.status == ChatMemberStatus.RESTRICTED:
         # A restricted user may or may not still be in the chat.
-        return "member" if getattr(new, "is_member", False) else "restricted"
-    if status == ChatMemberStatus.KICKED:
-        return "banned"
-    return "left"
+        return bool(getattr(new, "is_member", False))
+    return False
 
 
 @router.chat_member()
 async def on_chat_member(update: ChatMemberUpdated, bot: Bot) -> None:
     """A user joined, left, was promoted, restricted or banned."""
     tg_user = update.new_chat_member.user
-    if tg_user.is_bot:
-        return
-
-    if not db.chat_rows(update.chat.id):
-        # A chat nobody registered: remember it so the admin panel can adopt it.
-        log.debug("membership update from unmanaged chat %s", update.chat.id)
+    if tg_user.is_bot or not db.chat_rows(update.chat.id):
         return
 
     user = ensure_user(tg_user)
     user_id = int(user["id"])
-    status = _status_of(update)
-    kind = _chat_kind(update.chat.type)
-    db.set_membership(user_id, update.chat.id, kind, status)
-    db.log_event(
-        "membership",
-        user_id,
-        f"chat={update.chat.id} type={kind} status={status}",
-    )
+    joined = _is_in(update)
+    db.set_membership(user_id, update.chat.id, joined)
 
-    if status != "member":
+    if not joined:
         return
 
     # Someone banned elsewhere in the fleet must not slip back in.
-    if user["banned"] or user["duplicate"]:
+    if db.has_flag(user, db.F_BANNED) or db.has_flag(user, db.F_DUPLICATE):
         await call_api(bot.ban_chat_member, chat_id=update.chat.id, user_id=user_id)
-        db.set_membership(user_id, update.chat.id, kind, "banned")
+        db.set_membership(user_id, update.chat.id, False)
         return
 
-    await _credit_inviter(update, user_id)
+    _credit_inviter(update, user_id)
 
 
-async def _credit_inviter(update: ChatMemberUpdated, user_id: int) -> None:
-    """If they joined through someone's named link, record that referral."""
+def _credit_inviter(update: ChatMemberUpdated, user_id: int) -> None:
+    """If they joined through someone's named link, record that referral.
+
+    The link's *name* is the owner's UID, which Telegram reports back on join
+    — so attribution needs no stored table of links.
+    """
     link = update.invite_link
-    if link is None:
+    if link is None or not link.name:
         return
-    owner = db.owner_of_invite_link(link.invite_link, link.name)
+    owner = db.get_user_by_uid(link.name.strip().upper())
     if owner is None or int(owner["id"]) == user_id:
         return
 
     joined = db.get_user(user_id)
-    if joined is not None and joined["referred_by_uid"] is None:
-        db.set_user_fields(user_id, referred_by_uid=str(owner["uid"]))
-        db.log_event(
-            "referral_via_invite_link",
-            user_id,
-            f"inviter={owner['uid']} chat={update.chat.id}",
-        )
+    if joined is not None and joined["referred_by"] is None:
+        db.set_user_fields(user_id, referred_by=str(owner["uid"]))
+        db.log_event("referral_via_link", user_id, f"inviter={owner['uid']}")
 
 
 @router.chat_join_request()
@@ -108,15 +100,14 @@ async def on_join_request(request: ChatJoinRequest, bot: Bot) -> None:
     join-request link instead: the user taps it once and this handler lets
     them straight in.
     """
-    tg_user = request.from_user
-    user = ensure_user(tg_user)
+    user = ensure_user(request.from_user)
     user_id = int(user["id"])
 
-    if user["banned"] or user["duplicate"]:
+    if db.has_flag(user, db.F_BANNED) or db.has_flag(user, db.F_DUPLICATE):
         await call_api(
             bot.decline_chat_join_request, chat_id=request.chat.id, user_id=user_id
         )
-        db.log_event("join_declined", user_id, f"chat={request.chat.id} banned/duplicate")
+        db.log_event("join_declined", user_id, f"chat={request.chat.id}")
         return
 
     approved = await call_api(
@@ -126,17 +117,15 @@ async def on_join_request(request: ChatJoinRequest, bot: Bot) -> None:
         log.warning("could not approve %s into %s", user_id, request.chat.id)
         return
 
-    kind = _chat_kind(request.chat.type)
-    db.set_membership(user_id, request.chat.id, kind, "member")
-    db.log_event("join_approved", user_id, f"chat={request.chat.id}")
+    db.set_membership(user_id, request.chat.id, True)
 
     link = request.invite_link
-    if link is not None:
-        owner = db.owner_of_invite_link(link.invite_link, link.name)
+    if link is not None and link.name:
+        owner = db.get_user_by_uid(link.name.strip().upper())
         if owner is not None and int(owner["id"]) != user_id:
             joined = db.get_user(user_id)
-            if joined is not None and joined["referred_by_uid"] is None:
-                db.set_user_fields(user_id, referred_by_uid=str(owner["uid"]))
+            if joined is not None and joined["referred_by"] is None:
+                db.set_user_fields(user_id, referred_by=str(owner["uid"]))
 
 
 @router.my_chat_member()
@@ -145,9 +134,7 @@ async def on_my_chat_member(update: ChatMemberUpdated, bot: Bot) -> None:
     from app.bots.manager import manager
 
     bot_id = manager.bot_id_of(bot)
-    if bot_id is None:
-        return
-    if update.chat.type == ChatType.PRIVATE:
+    if bot_id is None or update.chat.type == ChatType.PRIVATE:
         return
 
     status = update.new_chat_member.status
@@ -160,9 +147,7 @@ async def on_my_chat_member(update: ChatMemberUpdated, bot: Bot) -> None:
             chat_type=kind,
             title=update.chat.title,
         )
-        db.log_event(
-            "chat_registered", None, f"bot={bot_id} chat={update.chat.id} status={status}"
-        )
+        db.log_event("chat_registered", None, f"bot={bot_id} chat={update.chat.id}")
         if status != ChatMemberStatus.ADMINISTRATOR:
             await call_api(
                 bot.send_message,

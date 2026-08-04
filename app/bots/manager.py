@@ -135,9 +135,10 @@ class BotManager:
                 me = await bot.get_me()
             except Exception as exc:  # noqa: BLE001 - bad token, no network, ...
                 await bot.session.close()
-                db.update_bot(bot_id, status="stopped", last_error=str(exc)[:300])
-                log.error("bot %s failed getMe: %s", bot_id, exc)
-                return f"could not start: {exc}"
+                safe = redact(str(exc), str(row["token"]))[:300]
+                db.update_bot(bot_id, status="stopped", last_error=safe)
+                log.error("bot %s failed getMe: %s", bot_id, safe)
+                return f"could not start: {safe}"
 
             from app.bots.dispatcher import build_dispatcher
 
@@ -175,7 +176,9 @@ class BotManager:
             raise
         except Exception as exc:  # noqa: BLE001
             log.exception("bot %s polling crashed", bot_id)
-            db.update_bot(bot_id, status="stopped", last_error=str(exc)[:300])
+            row = db.get_bot(bot_id)
+            token = str(row["token"]) if row else ""
+            db.update_bot(bot_id, status="stopped", last_error=redact(str(exc), token)[:300])
 
     async def _audit_rights(self, bot_id: int, bot: Bot) -> None:
         from app.bots.telegram_utils import check_admin_rights
@@ -247,6 +250,22 @@ class BotManager:
                 }
             )
         return out
+
+
+def redact(text: str, token: str) -> str:
+    """Strip a bot token out of an error message.
+
+    Telegram error strings sometimes echo the request URL, which contains the
+    token. Storing that in ``bots.last_error`` would put a live credential on
+    a web page.
+    """
+    body = str(text or "")
+    if token:
+        body = body.replace(token, mask_token(token))
+        secret = token.partition(":")[2]
+        if secret:
+            body = body.replace(secret, "***")
+    return body
 
 
 def mask_token(token: str) -> str:
