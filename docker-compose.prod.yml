@@ -1,0 +1,84 @@
+version: '3.9'
+
+# Production deployment for a Hostinger VPS (KVM 2 or larger).
+# Usage on the server:
+#   1. git clone (or upload) this repo
+#   2. cp .env.example .env  &&  fill in real secrets
+#   3. docker compose -f docker-compose.prod.yml up -d --build
+#   4. docker compose -f docker-compose.prod.yml exec api npx prisma migrate deploy
+#   5. docker compose -f docker-compose.prod.yml exec api npx prisma db seed
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # No ports exposed to the host — only reachable from other containers
+    # on this compose network. Do not publish 5432 on a production box.
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./apps/api
+      target: production
+    restart: always
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'node', '-e', "require('http').get('http://127.0.0.1:3001/api/v1/health', r => process.exit(r.statusCode===200?0:1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    # Not published directly — Nginx is the only public entry point.
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: always
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./infra/nginx:/etc/nginx/conf.d:ro
+      - certbot_www:/var/www/certbot:ro
+      - certbot_certs:/etc/letsencrypt:ro
+    depends_on:
+      - api
+
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - certbot_www:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt
+    # Run manually the first time (see README "HTTPS setup"), then this
+    # entrypoint keeps the certificate renewed every 12 hours.
+    entrypoint: sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot; sleep 12h; done"
+
+volumes:
+  postgres_data:
+  certbot_www:
+  certbot_certs:
