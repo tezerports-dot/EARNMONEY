@@ -1,13 +1,16 @@
-venv/
-.venv/
-__pycache__/
-*.py[cod]
-*.egg-info/
+node_modules/
+dist/
+build/
 .env
-*.db
-*.db-wal
-*.db-shm
-data/
-exports/
+*.local
+coverage/
 .DS_Store
-.pytest_cache/
+npm-debug.log*
+.vscode/
+
+# Expo
+.expo/
+# Generated native projects — this is a managed workflow; `expo prebuild`
+# regenerates these from app.json, so committing them only creates drift.
+apps/mobile/android/
+apps/mobile/ios/

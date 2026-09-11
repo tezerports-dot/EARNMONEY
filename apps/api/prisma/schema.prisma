@@ -1,0 +1,588 @@
+// Job Referral Platform — Database Schema
+// Source: 04-BACKEND-SCHEMA.md, adapted per agreed changes:
+//   1. referral_threshold and kyc_challenge_threshold default to 3 (was 200),
+//      and are admin-tunable via system_config (never hardcoded).
+//   2. The "verification challenge" no longer points at a real applicant's
+//      identity record. It now draws from `kyc_training_scenarios`, a bank of
+//      synthetic/dummy documents the institute controls. This tests whether a
+//      candidate can competently review a KYC document (the actual retail-job
+//      skill) without exposing any real person's Aadhaar-linked data to an
+//      untrained peer. See /docs/SPEC-DEVIATIONS.md for the full rationale.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum UserStatus {
+  REGISTERED
+  IDENTITY_PENDING
+  IDENTITY_VERIFIED
+  TELEGRAM_PENDING
+  TELEGRAM_VERIFIED
+  GROUP_PENDING
+  ACTIVE
+  REFERRAL_IN_PROGRESS
+  APPLICATION_ELIGIBLE
+  APPLIED
+  TRAINING_SCHEDULED
+  TRAINING_ATTENDED
+  HIRED
+  NOT_SELECTED
+  SUSPENDED
+  REVIEW_REQUIRED
+  KYC_REJECTED
+  DUPLICATE_REVIEW
+}
+
+enum Role {
+  CANDIDATE
+  ADMIN_RECRUITER
+  ADMIN_KYC_REVIEWER
+  ADMIN_SUPERADMIN
+}
+
+enum IdentityVerificationStatus {
+  PENDING
+  IN_REVIEW
+  VERIFIED
+  REJECTED
+  EXPIRED
+}
+
+enum TelegramAccountStatus {
+  PENDING
+  CONNECTED
+  DISCONNECTED
+}
+
+enum TelegramChatType {
+  CHANNEL
+  GROUP
+}
+
+enum TelegramMembershipStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  LEFT
+}
+
+enum ReferralStatus {
+  PENDING
+  ELIGIBLE
+  CREDITED
+  REJECTED
+}
+
+enum ChallengeKind {
+  /// Read a 12-digit number and answer a question about it.
+  NUMBER_READING
+  /// Review a synthetic document and report the fault.
+  DOCUMENT_REVIEW
+}
+
+enum ChallengeStatus {
+  ISSUED
+  SUBMITTED
+  PASSED
+  FAILED
+  EXPIRED
+}
+
+enum ApplicationStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  SHORTLISTED
+  REJECTED
+  WITHDRAWN
+}
+
+enum VacancyStatus {
+  OPEN
+  PAUSED
+  CLOSED
+}
+
+enum TrainingBatchStatus {
+  PLANNED
+  OPEN
+  FULL
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum TrainingEnrollmentStatus {
+  ENROLLED
+  ATTENDED
+  PARTIAL
+  NO_SHOW
+  CANCELLED
+}
+
+// ---------------------------------------------------------------------------
+// Core identity & auth
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String @id @default(uuid())
+  mobileE164   String @unique @map("mobile_e164")
+  passwordHash String @map("password_hash")
+
+  // Aadhaar is NEVER stored in plaintext. `aadhaarHash` is an HMAC-SHA256 of
+  // the digits keyed with AADHAAR_HASH_PEPPER (held outside the database), so
+  // a database leak alone cannot be brute-forced back to the 12-digit number.
+  // The unique constraint is what makes "no duplicate verified users" a
+  // database guarantee rather than an application-level check.
+  // `aadhaarLast4` is the only part ever shown or returned by the API.
+  aadhaarHash  String? @unique @map("aadhaar_hash")
+  aadhaarLast4 String? @map("aadhaar_last4")
+
+  // Count of referred users whose identity verification was conclusively
+  // rejected (3 independent rejections). At `fraud_strike_limit` the referrer
+  // is suspended. See FraudService.
+  fakeReferralCount Int @default(0) @map("fake_referral_count")
+
+  // Which of the day's slots this account's daily update belongs to, derived
+  // deterministically from the user id at signup (see scheduler/slot.util.ts).
+  // Persisted rather than computed at query time so the dispatcher can do an
+  // index range scan instead of hashing millions of rows every minute.
+  updateSlot  Int              @default(0) @map("update_slot")
+  updateState UserUpdateState?
+
+  role             Role       @default(CANDIDATE)
+  status           UserStatus @default(REGISTERED)
+  referralCode     String     @unique @map("referral_code")
+  referredByUserId String?    @map("referred_by_user_id")
+  referredBy       User?      @relation("UserReferrals", fields: [referredByUserId], references: [id])
+  referredUsers    User[]     @relation("UserReferrals")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  lastLoginAt DateTime? @map("last_login_at")
+
+  identityVerification IdentityVerification?
+  protectedIdentity    ProtectedIdentity?
+  telegramAccount      TelegramAccount?
+  telegramMemberships  TelegramMembership[]
+  refreshTokens        RefreshToken[]
+
+  referralsMade    Referral[]       @relation("Referrer")
+  referralReceived Referral?        @relation("Referred")
+  referralCredits  ReferralCredit[] @relation("CreditReferrer")
+
+  challengeAttempts   ChallengeAttempt[]
+  applications        Application[]
+  trainingEnrollments TrainingEnrollment[]
+  auditLogsAsActor    AuditLog[]
+
+  @@index([referredByUserId])
+  @@index([status])
+  // The dispatcher's hot path: "give me this slot's accounts, after this id".
+  // Composite so the keyset pagination stays on the index.
+  @@index([updateSlot, id])
+  @@map("users")
+}
+
+/// The content every account receives once a day. One row per published
+/// version; workers read it from Redis, falling back to this table on a miss.
+/// Small and rarely written, so it caches almost perfectly.
+model ContentVersion {
+  id          String   @id @default(uuid())
+  /// Monotonic. `UserUpdateState.deliveredVersion` is compared against this,
+  /// which is what makes redelivery a no-op rather than a duplicate.
+  version     Int      @unique
+  title       String
+  body        String
+  linkUrl     String?  @map("link_url")
+  publishedAt DateTime @default(now()) @map("published_at")
+  isCurrent   Boolean  @default(false) @map("is_current")
+
+  @@index([isCurrent])
+  @@map("content_versions")
+}
+
+/// Per-account delivery state. The unique row per user plus the conditional
+/// update in the processor is the real idempotency guarantee — queue-level
+/// de-duplication only covers jobs still known to the queue.
+model UserUpdateState {
+  id               String    @id @default(uuid())
+  userId           String    @unique @map("user_id")
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Highest content version this account has actually received.
+  deliveredVersion Int       @default(0) @map("delivered_version")
+  deliveredAt      DateTime? @map("delivered_at")
+  /// Consecutive failures; reset on success. Surfaced in monitoring.
+  failureCount     Int       @default(0) @map("failure_count")
+  lastError        String?   @map("last_error")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@index([deliveredVersion])
+  @@map("user_update_states")
+}
+
+/// One row per (day, slot) the dispatcher has handled. Two jobs at once:
+///  - the unique constraint stops two scheduler instances dispatching the same
+///    slot concurrently,
+///  - rows left incomplete are exactly the work a restart has to replay, so
+///    recovery is a query rather than a guess.
+model ScheduleTick {
+  id            String     @id @default(uuid())
+  /// UTC date, midnight-normalised.
+  slotDate      DateTime   @map("slot_date") @db.Date
+  /// 0..(slotsPerDay-1).
+  slot          Int
+  status        TickStatus @default(IN_PROGRESS)
+  enqueuedCount Int        @default(0) @map("enqueued_count")
+  startedAt     DateTime   @default(now()) @map("started_at")
+  completedAt   DateTime?  @map("completed_at")
+  lastError     String?    @map("last_error")
+
+  @@unique([slotDate, slot])
+  @@index([status, slotDate])
+  @@map("schedule_ticks")
+}
+
+enum TickStatus {
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+model RefreshToken {
+  id                  String    @id @default(uuid())
+  userId              String    @map("user_id")
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash           String    @unique @map("token_hash")
+  expiresAt           DateTime  @map("expires_at")
+  revokedAt           DateTime? @map("revoked_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  replacedByTokenHash String?   @map("replaced_by_token_hash")
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Identity / KYC (real applicant identity — separate, minimal, tokenized)
+// ---------------------------------------------------------------------------
+
+model IdentityVerification {
+  id                String                     @id @default(uuid())
+  userId            String                     @unique @map("user_id")
+  user              User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider          String
+  providerReference String?                    @map("provider_reference")
+  status            IdentityVerificationStatus @default(PENDING)
+  // Number of independent rejections. One rejection is not conclusive — the
+  // record is only treated as confirmed-fake at `kyc_rejection_attempts`
+  // (default 3), which is what then counts as a strike against the referrer.
+  rejectionCount    Int                        @default(0) @map("rejection_count")
+  verifiedAt        DateTime?                  @map("verified_at")
+  failureReasonCode String?                    @map("failure_reason_code")
+  createdAt         DateTime                   @default(now()) @map("created_at")
+  updatedAt         DateTime                   @updatedAt @map("updated_at")
+  // Never store a full Aadhaar (or other national ID) number in this table.
+
+  @@index([status])
+  @@map("identity_verifications")
+}
+
+// Encrypted/tokenized boundary for any identity attribute that must be kept
+// at all — access is only ever through a narrow service method, never a
+// generic query. Nothing here is ever rendered to another candidate.
+model ProtectedIdentity {
+  id                 String   @id @default(uuid())
+  userId             String   @unique @map("user_id")
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  identityToken      String   @unique @map("identity_token")
+  maskedIdentifier   String   @map("masked_identifier")
+  dataClassification String   @map("data_classification")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@map("protected_identity")
+}
+
+// ---------------------------------------------------------------------------
+// Telegram
+// ---------------------------------------------------------------------------
+
+model TelegramAccount {
+  id                String                @id @default(uuid())
+  userId            String                @unique @map("user_id")
+  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  telegramUserId    BigInt                @unique @map("telegram_user_id")
+  telegramUsername  String?               @map("telegram_username")
+  contactVerifiedAt DateTime?             @map("contact_verified_at")
+  connectedAt       DateTime              @default(now()) @map("connected_at")
+  status            TelegramAccountStatus @default(PENDING)
+
+  @@map("telegram_accounts")
+}
+
+// Short-lived opaque token embedded in the bot deep-link
+// (t.me/<bot>?start=<token>) so the candidate binding their Telegram account
+// doesn't require typing anything, and so the token can't be guessed or
+// reused. One-time use, consumed at bind time.
+model TelegramLinkToken {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  token      String    @unique
+  expiresAt  DateTime  @map("expires_at")
+  consumedAt DateTime? @map("consumed_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("telegram_link_tokens")
+}
+
+model TelegramMembership {
+  id              String                   @id @default(uuid())
+  userId          String                   @map("user_id")
+  user            User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  telegramChatId  BigInt                   @map("telegram_chat_id")
+  chatType        TelegramChatType         @map("chat_type")
+  status          TelegramMembershipStatus @default(REQUESTED)
+  joinRequestedAt DateTime                 @default(now()) @map("join_requested_at")
+  joinedAt        DateTime?                @map("joined_at")
+  leftAt          DateTime?                @map("left_at")
+
+  @@unique([userId, telegramChatId])
+  @@map("telegram_memberships")
+}
+
+// ---------------------------------------------------------------------------
+// Referral engine
+// ---------------------------------------------------------------------------
+
+model Referral {
+  id                  String         @id @default(uuid())
+  referrerUserId      String         @map("referrer_user_id")
+  referrer            User           @relation("Referrer", fields: [referrerUserId], references: [id])
+  referredUserId      String         @unique @map("referred_user_id")
+  referred            User           @relation("Referred", fields: [referredUserId], references: [id])
+  status              ReferralStatus @default(PENDING)
+  creditedAt          DateTime?      @map("credited_at")
+  rejectionReasonCode String?        @map("rejection_reason_code")
+  createdAt           DateTime       @default(now()) @map("created_at")
+  updatedAt           DateTime       @updatedAt @map("updated_at")
+
+  @@index([referrerUserId])
+  @@index([status])
+  @@map("referrals")
+}
+
+model ReferralCredit {
+  id               String   @id @default(uuid())
+  referrerUserId   String   @map("referrer_user_id")
+  referrer         User     @relation("CreditReferrer", fields: [referrerUserId], references: [id])
+  referredUserId   String   @map("referred_user_id")
+  creditType       String   @map("credit_type")
+  amount           Int      @default(1)
+  sourceReferralId String   @map("source_referral_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@unique([referrerUserId, referredUserId, creditType])
+  @@map("referral_credits")
+}
+
+// ---------------------------------------------------------------------------
+// KYC competency check — SYNTHETIC DATA ONLY.
+//
+// This replaces the original spec's "verification challenge against a random
+// real applicant record." Instead, the institute maintains a bank of
+// synthetic/dummy KYC documents (fictitious names, fictitious ID numbers,
+// deliberately-planted errors) built for training purposes. A candidate must
+// correctly review a set of these scenarios to demonstrate they can do KYC
+// verification competently — the same way a bank trains tellers on dummy
+// documents before they handle real ones. No real applicant's identity data
+// is ever used as challenge material.
+// ---------------------------------------------------------------------------
+
+model KycTrainingScenario {
+  id                String   @id @default(uuid())
+  title             String
+  // Synthetic document fields shown to the candidate — entirely fictitious.
+  syntheticDocument Json     @map("synthetic_document")
+  // The correct outcome(s) an admin/trainer has defined for this scenario,
+  // e.g. { "valid": false, "issue": "name_mismatch" }
+  expectedOutcome   Json     @map("expected_outcome")
+  difficulty        String   @default("standard")
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  attempts ChallengeAttempt[]
+
+  @@map("kyc_training_scenarios")
+}
+
+model ChallengeAttempt {
+  id              String               @id @default(uuid())
+  candidateUserId String               @map("candidate_user_id")
+  candidate       User                 @relation(fields: [candidateUserId], references: [id], onDelete: Cascade)
+  // Retained for the retired document-review challenge, so old attempts stay
+  // readable. Nothing issues one any more.
+  scenarioId      String?              @map("scenario_id")
+  scenario        KycTrainingScenario? @relation(fields: [scenarioId], references: [id])
+
+  /// The admin-authored item this attempt was drawn from.
+  itemId String?            @map("item_id")
+  item   NumberReadingItem? @relation(fields: [itemId], references: [id])
+
+  /// What the candidate was asked to do.
+  kind           ChallengeKind @default(NUMBER_READING)
+  /// Snapshot of the number and question as they were when issued. Kept on
+  /// the attempt so editing the item later cannot change how an attempt
+  /// already in flight is presented.
+  prompt         Json?
+  /// Snapshot of the answer the admin had set at issue time. Server-side
+  /// only — never returned until after the candidate has submitted. Grading
+  /// reads this, not the item, so a correction made mid-attempt cannot fail
+  /// a candidate who answered what they were actually shown.
+  expectedAnswer String?       @map("expected_answer")
+
+  status           ChallengeStatus @default(ISSUED)
+  submittedOutcome Json?           @map("submitted_outcome")
+  isCorrect        Boolean?        @map("is_correct")
+  attempts         Int             @default(0)
+  expiresAt        DateTime        @map("expires_at")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  completedAt      DateTime?       @map("completed_at")
+
+  @@index([candidateUserId])
+  @@index([candidateUserId, itemId])
+  @@map("challenge_attempts")
+}
+
+/// An admin-authored reading item: a number, the question asked about it, and
+/// the answer the admin set for that question.
+///
+/// The bank is the whole supply of challenges. Items repeat — least recently
+/// seen first — so a target of 200 does not require 200 items.
+model NumberReadingItem {
+  id             String   @id @default(uuid())
+  /// The 12-digit number shown to the candidate.
+  number         String
+  /// What the candidate is asked about it.
+  question       String
+  /// The answer the admin set. Compared against what the candidate types,
+  /// ignoring spaces and dashes.
+  expectedAnswer String   @map("expected_answer")
+  /// Optional placeholder under the input, e.g. "4 digits".
+  answerHint     String?  @map("answer_hint")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  attempts ChallengeAttempt[]
+
+  // The same number can carry several questions ("first four", "last four"),
+  // but the same question twice on one number is a duplicate, not content.
+  @@unique([number, question])
+  @@index([isActive])
+  @@map("number_reading_items")
+}
+
+// ---------------------------------------------------------------------------
+// Applications, vacancies, training
+// ---------------------------------------------------------------------------
+
+model Application {
+  id                 String            @id @default(uuid())
+  userId             String            @map("user_id")
+  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  statePreference    String            @map("state_preference")
+  tierPreference     String            @map("tier_preference")
+  districtPreference String?           @map("district_preference")
+  status             ApplicationStatus @default(SUBMITTED)
+  submittedAt        DateTime          @default(now()) @map("submitted_at")
+  reviewedAt         DateTime?         @map("reviewed_at")
+
+  @@index([status])
+  @@map("applications")
+}
+
+model Vacancy {
+  id                 String        @id @default(uuid())
+  state              String
+  tier               String
+  title              String
+  postCount          Int           @map("post_count")
+  salaryMonthlyPaise BigInt        @map("salary_monthly_paise")
+  status             VacancyStatus @default(OPEN)
+
+  @@map("vacancies")
+}
+
+model TrainingBatch {
+  id        String              @id @default(uuid())
+  batchCode String              @unique @map("batch_code")
+  venue     String
+  city      String
+  startDate DateTime            @map("start_date") @db.Date
+  endDate   DateTime            @map("end_date") @db.Date
+  capacity  Int
+  status    TrainingBatchStatus @default(PLANNED)
+
+  enrollments TrainingEnrollment[]
+
+  @@map("training_batches")
+}
+
+model TrainingEnrollment {
+  id             String                   @id @default(uuid())
+  batchId        String                   @map("batch_id")
+  batch          TrainingBatch            @relation(fields: [batchId], references: [id])
+  userId         String                   @map("user_id")
+  user           User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status         TrainingEnrollmentStatus @default(ENROLLED)
+  attendanceDays Int                      @default(0) @map("attendance_days")
+  createdAt      DateTime                 @default(now()) @map("created_at")
+
+  @@unique([batchId, userId])
+  @@map("training_enrollments")
+}
+
+// ---------------------------------------------------------------------------
+// Audit & configuration
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  actorUserId String?  @map("actor_user_id")
+  actor       User?    @relation(fields: [actorUserId], references: [id])
+  action      String
+  entityType  String   @map("entity_type")
+  entityId    String?  @map("entity_id")
+  metadata    Json
+  ipHash      String?  @map("ip_hash")
+  createdAt   DateTime @default(now()) @map("created_at")
+  // Never put secrets or full identity values in metadata.
+
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
+
+// Admin-tunable thresholds and feature flags. Never hardcode business
+// thresholds in application code — always read from here so the institute
+// can adjust without a deploy.
+model SystemConfig {
+  key         String   @id
+  value       Json
+  description String?
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by")
+
+  @@map("system_config")
+}
