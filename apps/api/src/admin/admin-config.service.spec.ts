@@ -31,9 +31,8 @@ describe('AdminConfigService', () => {
     service = moduleRef.get(AdminConfigService);
   });
 
-  describe('any target is settable, because scenarios repeat', () => {
+  describe('any target is settable, because challenges are generated', () => {
     it('allows the small target an operator actually wants', async () => {
-      prisma.kycTrainingScenario.count.mockResolvedValue(5);
       await expect(service.update('kyc_challenge_threshold', 2, 'admin-1')).resolves.toMatchObject({
         key: 'kyc_challenge_threshold',
         value: 2,
@@ -41,10 +40,9 @@ describe('AdminConfigService', () => {
       expect(systemConfig.set).toHaveBeenCalledWith('kyc_challenge_threshold', 2, 'admin-1');
     });
 
-    it('allows a target far larger than the scenario bank', async () => {
-      // The bank size no longer caps the target: issueNextChallenge cycles
-      // scenarios, so 200 reviews against 5 scenarios is 40 passes each.
-      prisma.kycTrainingScenario.count.mockResolvedValue(5);
+    it('allows a large target, because nothing caps it', async () => {
+      // Each challenge is generated on demand, so there is no content bank
+      // whose size could limit what the operator is allowed to ask for.
       await expect(
         service.update('kyc_challenge_threshold', 200, 'admin-1'),
       ).resolves.toMatchObject({ value: 200 });
@@ -83,10 +81,9 @@ describe('AdminConfigService', () => {
   });
 
   describe('listSettings', () => {
-    it('reports how many scenarios exist, for context on repetition', async () => {
-      prisma.kycTrainingScenario.count.mockResolvedValue(5);
+    it('explains that the target has no upper limit', async () => {
       const result = await service.listSettings();
-      expect(result.context.activeScenarios).toBe(5);
+      expect(result.context.note).toContain('no upper limit');
     });
 
     it('falls back to defaults for settings never written to the database', async () => {

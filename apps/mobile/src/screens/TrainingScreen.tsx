@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { api, ApiError, Challenge, ChallengeResult, KycIssue, ReferralSummary } from '../api/client';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { api, ApiError, Challenge, ChallengeResult, ReferralSummary } from '../api/client';
 import { AdBanner } from '../components/AdBanner';
 import {
   Badge, Banner, Button, Card, LoadingState, ProgressBar, Screen, SectionTitle,
@@ -8,26 +8,29 @@ import {
 import { colors, radius, spacing, typography } from '../theme/tokens';
 
 /**
- * KYC competency training.
+ * Number-reading training.
  *
- * Important: every document shown here is FICTITIOUS and authored by the
- * company. No real person's identity details are ever routed through another
- * candidate — see docs/SPEC-DEVIATIONS.md for why that was ruled out. The task
- * tests whether the candidate can spot a problem in a document, which is the
- * actual on-the-job skill.
+ * A 12-digit number is shown, one question is asked about it, and the
+ * candidate types the answer. That is the whole task: it checks whether
+ * someone can read an Aadhaar-format number accurately, which is the skill
+ * the job actually needs.
  *
- * Grading happens server-side; the correct answer is not in the payload the
- * app receives until after submission.
+ * Every number is GENERATED, never a real person's — see
+ * docs/SPEC-DEVIATIONS.md. That is both the legal position and the practical
+ * one: generated numbers mean an unlimited supply of questions and a grader
+ * that always knows the right answer, so any target the admin sets is
+ * reachable.
+ *
+ * Grading is server-side. The correct answer is not in the payload the app
+ * receives until after the candidate has submitted.
  */
 export function TrainingScreen() {
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [progress, setProgress] = useState<ReferralSummary['progress'] | null>(null);
   const [result, setResult] = useState<ChallengeResult | null>(null);
-  const [issues, setIssues] = useState<KycIssue[]>([]);
-  const [selectedIssue, setSelectedIssue] = useState<string | null>(null);
+  const [answer, setAnswer] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [exhausted, setExhausted] = useState(false);
 
   const loadProgress = useCallback(async () => {
     try {
@@ -38,48 +41,28 @@ export function TrainingScreen() {
     }
   }, []);
 
-  const loadIssues = useCallback(async () => {
-    try {
-      const { issues: list } = await api.kycIssues();
-      setIssues(list);
-    } catch {
-      // The picker is the only way to answer, so a failure here is retried on
-      // the next challenge rather than silently leaving an empty list.
-    }
-  }, []);
-
   const loadChallenge = useCallback(async () => {
     setError(null);
     setResult(null);
-    setSelectedIssue(null);
-    setExhausted(false);
+    setAnswer('');
     try {
       setChallenge(await api.nextChallenge());
     } catch (e) {
-      if (e instanceof ApiError && e.status === 400) {
-        setExhausted(true);
-        setChallenge(null);
-        return;
-      }
-      setError(e instanceof ApiError ? e.message : 'Could not load a practice document.');
+      setError(e instanceof ApiError ? e.message : 'Could not load a practice number.');
     }
   }, []);
 
   useEffect(() => {
     void loadChallenge();
     void loadProgress();
-    void loadIssues();
-  }, [loadChallenge, loadProgress, loadIssues]);
+  }, [loadChallenge, loadProgress]);
 
-  const submit = async (valid: boolean) => {
-    if (!challenge) return;
+  const submit = async () => {
+    if (!challenge || !answer.trim()) return;
     setBusy(true);
     setError(null);
     try {
-      const outcome = await api.submitChallenge(challenge.attemptId, {
-        valid,
-        issue: valid ? undefined : (selectedIssue ?? undefined),
-      });
+      const outcome = await api.submitChallenge(challenge.attemptId, answer.trim());
       setResult(outcome);
       void loadProgress();
     } catch (e) {
@@ -91,8 +74,8 @@ export function TrainingScreen() {
 
   return (
     <Screen>
-      <SectionTitle hint="Practice documents only — none of these are real people.">
-        KYC training
+      <SectionTitle hint="Practice numbers only — none of these belong to a real person.">
+        Number reading
       </SectionTitle>
 
       {progress ? (
@@ -123,23 +106,15 @@ export function TrainingScreen() {
 
       {error ? <Banner tone="danger" title="Something went wrong" message={error} /> : null}
 
-      {exhausted ? (
-        <Banner
-          tone="info"
-          title="No new practice documents right now"
-          message="You have worked through everything currently available. More are added regularly."
-        />
-      ) : null}
-
       {result ? (
         <>
           <Banner
             tone={result.correct ? 'success' : 'warning'}
             title={result.correct ? 'Correct' : 'Not quite'}
             message={
-              result.correctOutcome.valid
-                ? 'This document was genuine — nothing was wrong with it.'
-                : `The problem was: ${result.correctOutcome.issue ?? 'a mismatch in the details'}.`
+              result.correct
+                ? 'You read the number accurately.'
+                : `The correct answer was ${result.correctAnswer}. Read the number one group at a time.`
             }
           />
           {result.promotedToApplicationEligible ? (
@@ -149,71 +124,51 @@ export function TrainingScreen() {
               message="Both targets are complete. Head to the Apply screen."
             />
           ) : null}
-          <Button label="Next document" onPress={loadChallenge} />
+          <Button label="Next number" onPress={loadChallenge} />
         </>
       ) : challenge ? (
         <>
           <Card>
-            <Text style={styles.challengeTitle}>{challenge.title}</Text>
-            <View style={styles.documentBox}>
-              {Object.entries(challenge.document).map(([key, value]) => (
-                <View key={key} style={styles.docRow}>
-                  <Text style={styles.docKey}>{humanise(key)}</Text>
-                  <Text style={styles.docValue}>{String(value)}</Text>
-                </View>
-              ))}
+            <Text style={styles.numberLabel}>Read this number</Text>
+            <View style={styles.numberBox}>
+              {/* Selection is off so the number cannot be copy-pasted into the
+                  answer box, which would skip the reading entirely. */}
+              <Text style={styles.number} selectable={false}>
+                {challenge.numberDisplay}
+              </Text>
             </View>
-            <Text style={styles.helpText}>
-              Review the details above. Does everything match and look genuine?
-            </Text>
           </Card>
 
           <Card>
-            <Text style={styles.answerLabel}>What is wrong with it?</Text>
-            <View style={styles.issueWrap}>
-              {issues.map((opt) => {
-                const active = selectedIssue === opt.code;
-                return (
-                  <Pressable
-                    key={opt.code}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: active }}
-                    onPress={() => setSelectedIssue(active ? null : opt.code)}
-                    style={[styles.issueChip, active ? styles.issueChipActive : null]}
-                  >
-                    <Text style={[styles.issueText, active ? styles.issueTextActive : null]}>
-                      {opt.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-            <Text style={styles.helpText}>
-              Pick the fault, then tap &quot;Something is wrong&quot;. If the document is fine,
-              tap &quot;Looks genuine&quot; instead.
-            </Text>
-            <View style={styles.answerRow}>
-              <Button
-                label="Looks genuine"
-                onPress={() => submit(true)}
-                variant="ghost"
-                loading={busy}
-                style={styles.answerButton}
-              />
-              <Button
-                label="Something is wrong"
-                onPress={() => submit(false)}
-                loading={busy}
-                // Cannot report a fault without naming it — the grader needs a
-                // code, and a blank answer would always be marked wrong.
-                disabled={!selectedIssue}
-                style={styles.answerButton}
-              />
-            </View>
+            <Text style={styles.question}>{challenge.question}</Text>
+            <TextInput
+              value={answer}
+              onChangeText={setAnswer}
+              keyboardType="number-pad"
+              // The answer is always digits, so a numeric pad is faster and
+              // rules out a whole class of typos.
+              inputMode="numeric"
+              maxLength={20}
+              autoCorrect={false}
+              placeholder={challenge.answerHint}
+              placeholderTextColor={colors.textSecondary}
+              style={styles.input}
+              accessibilityLabel={challenge.question}
+              onSubmitEditing={submit}
+              returnKeyType="done"
+            />
+            <Button
+              label="Submit answer"
+              onPress={submit}
+              loading={busy}
+              // A blank answer is always wrong, so it would only burn an
+              // attempt.
+              disabled={!answer.trim()}
+            />
           </Card>
         </>
-      ) : !exhausted && !error ? (
-        <LoadingState label="Loading a practice document…" />
+      ) : !error ? (
+        <LoadingState label="Loading a practice number…" />
       ) : null}
 
       <AdBanner />
@@ -221,41 +176,38 @@ export function TrainingScreen() {
   );
 }
 
-/** camelCase key -> readable label. */
-function humanise(key: string): string {
-  return key
-    .replace(/([A-Z])/g, ' $1')
-    .replace(/^./, (c) => c.toUpperCase())
-    .trim();
-}
-
 const styles = StyleSheet.create({
   progressHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   progressTitle: { ...typography.heading, color: colors.textPrimary },
 
-  challengeTitle: { ...typography.heading, color: colors.textPrimary },
-  documentBox: {
+  numberLabel: { ...typography.label, color: colors.textSecondary },
+  numberBox: {
     backgroundColor: colors.surfaceAlt,
     borderRadius: radius.md,
-    padding: spacing.md,
-    gap: spacing.sm,
-  },
-  docRow: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md },
-  docKey: { ...typography.caption, color: colors.textSecondary, flexShrink: 0 },
-  docValue: { ...typography.bodyStrong, color: colors.textPrimary, flexShrink: 1, textAlign: 'right' },
-  helpText: { ...typography.caption, color: colors.textSecondary },
-
-  answerLabel: { ...typography.label, color: colors.textSecondary },
-  issueWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  issueChip: {
+    paddingVertical: spacing.lg,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.pill,
-    backgroundColor: colors.surfaceAlt,
+    alignItems: 'center',
   },
-  issueChipActive: { backgroundColor: colors.brandNavy },
-  issueText: { ...typography.caption, color: colors.textSecondary, fontWeight: '600' },
-  issueTextActive: { color: colors.textOnBrand },
-  answerRow: { flexDirection: 'row', gap: spacing.md },
-  answerButton: { flex: 1 },
+  number: {
+    ...typography.heading,
+    color: colors.textPrimary,
+    fontSize: 28,
+    lineHeight: 36,
+    // Monospaced digits keep the groups evenly spaced, so nothing is
+    // misread because of uneven letterforms.
+    fontVariant: ['tabular-nums'],
+    letterSpacing: 2,
+  },
+
+  question: { ...typography.bodyStrong, color: colors.textPrimary },
+  input: {
+    ...typography.heading,
+    color: colors.textPrimary,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    textAlign: 'center',
+    letterSpacing: 2,
+  },
 });

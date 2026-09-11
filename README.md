@@ -29,7 +29,7 @@ apps/api/          NestJS backend (this is what's built so far)
     referrals/      Server-side referral crediting
     eligibility/    Single source of truth for "has this candidate met
                      both thresholds yet"
-    kyc-training/   Synthetic-data KYC competency challenges
+    kyc-training/   Number-reading test on generated Aadhaar-format numbers
     applications/   Job application submission, gated on eligibility
     system-config/  Admin-tunable thresholds (never hardcoded)
     audit/          Append-only audit log
@@ -62,7 +62,7 @@ docker compose up --build
 
 This starts Postgres, Redis, and the API with hot reload on `:3001`, and runs
 `prisma migrate deploy` automatically on boot. To seed the default thresholds
-and sample KYC training scenarios:
+(challenges need no seed data — each one is generated on demand):
 
 ```bash
 docker compose exec api npx prisma db seed
@@ -145,6 +145,6 @@ In the order the original spec recommends:
    + webhook handling)
 2. Telegram bot (bind account, verify group membership)
 3. Admin panel (review flagged accounts, adjust thresholds, manage vacancies
-   and training batches, expand the KYC scenario bank)
+   and training batches)
 4. Candidate-facing frontend (Next.js)
 5. Load testing and a security review pass before go-live

@@ -83,6 +83,13 @@ enum ReferralStatus {
   REJECTED
 }
 
+enum ChallengeKind {
+  /// Read a 12-digit number and answer a question about it.
+  NUMBER_READING
+  /// Review a synthetic document and report the fault.
+  DOCUMENT_REVIEW
+}
+
 enum ChallengeStatus {
   ISSUED
   SUBMITTED
@@ -424,8 +431,19 @@ model ChallengeAttempt {
   id               String              @id @default(uuid())
   candidateUserId  String              @map("candidate_user_id")
   candidate        User                @relation(fields: [candidateUserId], references: [id], onDelete: Cascade)
-  scenarioId       String              @map("scenario_id")
-  scenario         KycTrainingScenario @relation(fields: [scenarioId], references: [id])
+  // Null for generated number-reading challenges, which need no stored
+  // scenario — the number and its answer are produced on the fly.
+  scenarioId       String?             @map("scenario_id")
+  scenario         KycTrainingScenario? @relation(fields: [scenarioId], references: [id])
+
+  /// What the candidate was asked to do.
+  kind             ChallengeKind       @default(NUMBER_READING)
+  /// For NUMBER_READING: the generated number and the question asked.
+  prompt           Json?
+  /// The answer this attempt should produce. Server-side only — never
+  /// returned until after the candidate has submitted.
+  expectedAnswer   String?             @map("expected_answer")
+
   status           ChallengeStatus     @default(ISSUED)
   submittedOutcome Json?               @map("submitted_outcome")
   isCorrect        Boolean?            @map("is_correct")

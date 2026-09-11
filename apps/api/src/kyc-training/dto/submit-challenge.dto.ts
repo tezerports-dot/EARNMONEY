@@ -1,11 +1,9 @@
-import { IsBoolean, IsOptional, IsString } from 'class-validator';
+import { IsString, MaxLength, MinLength } from 'class-validator';
 
 export class SubmitChallengeDto {
-  @IsBoolean()
-  valid: boolean;
-
-  // Required when valid=false — which problem did you spot?
-  @IsOptional()
+  /** What the candidate typed after reading the number. */
   @IsString()
-  issue?: string;
+  @MinLength(1, { message: 'Enter your answer.' })
+  @MaxLength(20, { message: 'That answer is too long.' })
+  answer: string;
 }

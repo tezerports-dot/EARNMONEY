@@ -208,17 +208,20 @@ export type TelegramLinkInfo = {
 
 export type Challenge = {
   attemptId: string;
-  title: string;
-  document: Record<string, string>;
+  /** The number to read, grouped 4-4-4 as it appears on a card. */
+  numberDisplay: string;
+  /** What to answer about it. */
+  question: string;
+  /** What a correct answer looks like, e.g. "4 digits". */
+  answerHint: string;
   expiresAt: string;
 };
-
-export type KycIssue = { code: string; label: string };
 
 export type ChallengeResult = {
   attemptId: string;
   correct: boolean;
-  correctOutcome: { valid: boolean; issue?: string };
+  /** Revealed only after submitting, so a miss is something to learn from. */
+  correctAnswer: string;
   promotedToApplicationEligible: boolean;
 };
 
@@ -279,13 +282,10 @@ export const api = {
 
   // KYC training
   nextChallenge: () => request<Challenge>('/kyc-training/next-challenge'),
-  // The fixed answer options. Served by the API so the app and the grader can
-  // never disagree about what a valid answer looks like.
-  kycIssues: () => request<{ issues: KycIssue[] }>('/kyc-training/issues'),
-  submitChallenge: (attemptId: string, answer: { valid: boolean; issue?: string }) =>
+  submitChallenge: (attemptId: string, answer: string) =>
     request<ChallengeResult>(`/kyc-training/attempts/${attemptId}/submit`, {
       method: 'POST',
-      body: answer,
+      body: { answer },
     }),
 
   // Applications

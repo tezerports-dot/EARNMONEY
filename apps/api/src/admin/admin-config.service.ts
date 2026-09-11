@@ -9,13 +9,10 @@ import { CONFIG_KEYS, SystemConfigService } from '../system-config/system-config
  * These were always stored in `system_config` rather than hardcoded, but there
  * was no way to change them without direct database access. This is that way.
  *
- * The KYC challenge target is a count of completed reviews, not of distinct
- * scenarios: `issueNextChallenge()` cycles the bank, so any target is
- * reachable whatever its size. Set 5 and candidates complete 5; set 200 and
- * they complete 200.
- *
- * The only hard requirement is that at least one active scenario exists, which
- * `AdminScenariosService` enforces when retiring one.
+ * The KYC challenge target is a count of correctly answered number-reading
+ * questions. Each one is generated on demand, so there is no bank to run out
+ * and no ceiling: set 5 and candidates complete 5; set 200 and they complete
+ * 200.
  */
 @Injectable()
 export class AdminConfigService {
@@ -62,10 +59,7 @@ export class AdminConfigService {
 
   /** Current values plus the limits that constrain them. */
   async listSettings() {
-    const [rows, activeScenarios] = await Promise.all([
-      this.prisma.systemConfig.findMany(),
-      this.prisma.kycTrainingScenario.count({ where: { isActive: true } }),
-    ]);
+    const rows = await this.prisma.systemConfig.findMany();
     const byKey = new Map(rows.map((r: { key: string; value: unknown }) => [r.key, r.value]));
 
     return {
@@ -76,9 +70,8 @@ export class AdminConfigService {
         value: (byKey.get(key) as number) ?? meta.fallback,
       })),
       context: {
-        activeScenarios,
         note:
-          'Scenarios repeat, so the KYC target is not limited by the size of the scenario bank. A larger bank means less repetition, not a higher ceiling.',
+          'Challenges are generated on demand, so the KYC target has no upper limit. Whatever number you set is the number candidates must answer correctly.',
       },
     };
   }

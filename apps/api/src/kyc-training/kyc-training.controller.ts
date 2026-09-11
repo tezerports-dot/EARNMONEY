@@ -11,15 +11,6 @@ import { User } from '@prisma/client';
 export class KycTrainingController {
   constructor(private readonly kycTrainingService: KycTrainingService) {}
 
-  /**
-   * The answer options. Served so the app renders a picker instead of a free
-   * text box — grading compares codes, and prose cannot be guessed reliably.
-   */
-  @Get('issues')
-  listIssues() {
-    return this.kycTrainingService.listIssues();
-  }
-
   @Get('next-challenge')
   async next(@CurrentUser() user: User) {
     return this.kycTrainingService.issueNextChallenge(user.id);
