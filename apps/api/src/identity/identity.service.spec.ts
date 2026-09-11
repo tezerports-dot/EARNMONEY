@@ -4,6 +4,7 @@ import { createHmac } from 'crypto';
 import { IdentityService } from './identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
+import { FraudService } from '../fraud/fraud.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { ConfigService } from '@nestjs/config';
 
@@ -11,6 +12,7 @@ describe('IdentityService', () => {
   let service: IdentityService;
   let prisma: any;
   let users: any;
+  let fraud: any;
   let provider: any;
 
   beforeEach(async () => {
@@ -20,6 +22,7 @@ describe('IdentityService', () => {
       protectedIdentity: { upsert: jest.fn() },
     };
     users = { markIdentityVerified: jest.fn(), markIdentityRejected: jest.fn() };
+    fraud = { recordVerificationRejection: jest.fn() };
     provider = {
       startVerification: jest.fn().mockResolvedValue({ providerReference: 'ref-1' }),
       handleWebhook: jest.fn(),
@@ -30,6 +33,7 @@ describe('IdentityService', () => {
         IdentityService,
         { provide: PrismaService, useValue: prisma },
         { provide: UsersService, useValue: users },
+        { provide: FraudService, useValue: fraud },
         { provide: AuditLogService, useValue: { record: jest.fn() } },
         { provide: ConfigService, useValue: { get: () => 'test-webhook-secret' } },
         { provide: 'IdentityProvider', useValue: provider },
@@ -99,7 +103,10 @@ describe('IdentityService', () => {
 
       await service.handleWebhook({}, 'sig');
 
-      expect(users.markIdentityRejected).toHaveBeenCalledWith('u1', 'document_unreadable');
+      // Rejections no longer flag the account directly — FraudService counts
+      // them and only acts once the rejection is conclusive.
+      expect(fraud.recordVerificationRejection).toHaveBeenCalledWith('u1', 'document_unreadable');
+      expect(users.markIdentityRejected).not.toHaveBeenCalled();
       expect(prisma.protectedIdentity.upsert).not.toHaveBeenCalled();
     });
   });

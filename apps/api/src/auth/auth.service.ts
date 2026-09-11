@@ -10,6 +10,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { hashAadhaar, aadhaarLast4, normaliseAadhaar } from '../common/identity/aadhaar.util';
 import { AuditLogService } from '../audit/audit-log.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
@@ -37,9 +38,23 @@ export class AuthService {
       throw new BadRequestException('CAPTCHA verification failed.');
     }
 
-    const existing = await this.prisma.user.findUnique({ where: { mobileE164: dto.mobile } });
+    if (dto.password !== dto.confirmPassword) {
+      throw new BadRequestException('Password and confirm password do not match.');
+    }
+
+    // Throws if the number fails shape or Verhoeff checksum, before anything
+    // touches the database. Never log or persist `aadhaar` itself.
+    const aadhaar = normaliseAadhaar(dto.aadhaarNumber);
+    const pepper = this.config.get<string>('identity.aadhaarHashPepper') ?? '';
+    const aadhaarHash = hashAadhaar(aadhaar, pepper);
+
+    const existing = await this.prisma.user.findFirst({
+      where: { OR: [{ mobileE164: dto.mobile }, { aadhaarHash }] },
+    });
     if (existing) {
-      // Deliberately vague — do not reveal which accounts exist.
+      // Deliberately vague, and deliberately the same message for both cases:
+      // distinguishing them would turn signup into an oracle for "is this
+      // Aadhaar/mobile already registered here?".
       throw new ConflictException('Unable to create account with the details provided.');
     }
 
@@ -73,9 +88,13 @@ export class AuthService {
         data: {
           mobileE164: dto.mobile,
           passwordHash,
+          aadhaarHash,
+          aadhaarLast4: aadhaarLast4(aadhaar),
           referralCode,
           referredByUserId,
-          status: 'IDENTITY_PENDING',
+          // Candidate exists but has proved nothing yet. The Telegram bot flow
+          // is what moves them forward from here.
+          status: 'TELEGRAM_PENDING',
         },
       });
 
@@ -105,11 +124,12 @@ export class AuthService {
       action: 'USER_SIGNUP',
       entityType: 'User',
       entityId: user.id,
+      // Never put the Aadhaar number (or its hash) in an audit row.
       metadata: { hadReferralCode: !!dto.referralCode },
       ip,
     });
 
-    return { userId: user.id, status: user.status };
+    return { userId: user.id, status: user.status, referralCode: user.referralCode };
   }
 
   async login(dto: LoginDto, ip?: string): Promise<{ user: { id: string; role: string }; tokens: TokenPair }> {

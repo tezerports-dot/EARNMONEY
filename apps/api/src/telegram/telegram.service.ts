@@ -1,13 +1,28 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { TelegramBotService } from './telegram-bot.service';
+import { hashAadhaar } from '../common/identity/aadhaar.util';
 
-const LINK_TOKEN_TTL_MINUTES = 30;
-
+/**
+ * Candidate verification over Telegram, in the order the bot walks them through:
+ *
+ *   1. /start            → bot asks for the Aadhaar number they signed up with
+ *   2. <12 digits>       → bot looks up the account by HMAC, never by plaintext
+ *   3. share contact     → Telegram itself vouches that the number belongs to
+ *                          this Telegram account; we compare it to the number
+ *                          given at signup
+ *   4. join both chats   → public chat must show membership; private chat
+ *                          accepts a pending join request
+ *   5. "confirm" / poll  → once both are satisfied the account is activated
+ *
+ * Step 3 is the security-carrying one. A candidate cannot type a number they
+ * do not control: `contact.phone_number` is attached by Telegram's servers,
+ * and we additionally require `contact.user_id` to equal the sender, which is
+ * what stops someone forwarding a friend's contact card.
+ */
 @Injectable()
 export class TelegramService {
   private readonly logger = new Logger(TelegramService.name);
@@ -20,99 +35,263 @@ export class TelegramService {
     private readonly bot: TelegramBotService,
   ) {}
 
-  /** Candidate calls this to get a deep link that binds their Telegram account. */
-  async createLinkToken(userId: string): Promise<{ deepLink: string; expiresAt: Date }> {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user || user.status !== 'TELEGRAM_PENDING') {
-      throw new BadRequestException('Telegram binding is not applicable at this stage.');
+  /** Chats a candidate must be in. Configuration error if either is unset. */
+  private requiredChats(): { publicChatId: bigint; privateChatId: bigint } {
+    const publicChatId = this.config.get<bigint>('telegram.publicChatId');
+    const privateChatId = this.config.get<bigint>('telegram.privateChatId');
+    if (publicChatId === undefined || privateChatId === undefined) {
+      // Never fall through to "no chats required = step satisfied". That would
+      // silently disable the whole gate on a half-configured deployment.
+      throw new Error(
+        'TELEGRAM_PUBLIC_CHAT_ID and TELEGRAM_PRIVATE_CHAT_ID must both be set. Refusing to treat the Telegram step as satisfied while they are missing.',
+      );
     }
+    return { publicChatId, privateChatId };
+  }
 
-    const token = randomBytes(16).toString('hex');
-    const expiresAt = new Date(Date.now() + LINK_TOKEN_TTL_MINUTES * 60 * 1000);
+  /** What the app shows on the "verify on Telegram" screen. */
+  async getLinkInfo(userId: string) {
+    const botUsername = this.config.get<string>('telegram.botUsername');
+    if (!botUsername) {
+      throw new Error('TELEGRAM_BOT_USERNAME is not set — cannot build a usable bot deep link.');
+    }
+    const account = await this.prisma.telegramAccount.findUnique({ where: { userId } });
+    return {
+      botLink: `https://t.me/${botUsername}`,
+      botUsername,
+      publicChatInviteLink: this.config.get<string>('telegram.publicChatInviteLink') ?? null,
+      privateChatInviteLink: this.config.get<string>('telegram.privateChatInviteLink') ?? null,
+      connected: !!account && account.status === 'CONNECTED',
+      contactVerified: !!account?.contactVerifiedAt,
+    };
+  }
 
-    await this.prisma.telegramLinkToken.create({ data: { userId, token, expiresAt } });
+  /** Per-candidate progress, so the app can render a live checklist. */
+  async getVerificationState(userId: string) {
+    const { publicChatId, privateChatId } = this.requiredChats();
+    const [user, account, memberships] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: userId } }),
+      this.prisma.telegramAccount.findUnique({ where: { userId } }),
+      this.prisma.telegramMembership.findMany({ where: { userId } }),
+    ]);
 
-    const botUsername = this.config.get<string>('telegram.botUsername') ?? 'your_bot';
-    return { deepLink: `https://t.me/${botUsername}?start=${token}`, expiresAt };
+    const inPublic = memberships.some(
+      (m: { telegramChatId: bigint; status: string }) =>
+        m.telegramChatId === publicChatId && m.status === 'APPROVED',
+    );
+    // A pending request is enough for the private chat by design — approval
+    // there is a human decision that can lag by hours.
+    const inPrivate = memberships.some(
+      (m: { telegramChatId: bigint; status: string }) =>
+        m.telegramChatId === privateChatId && ['APPROVED', 'REQUESTED'].includes(m.status),
+    );
+
+    return {
+      botStarted: !!account,
+      contactVerified: !!account?.contactVerifiedAt,
+      joinedPublicChat: inPublic,
+      joinedPrivateChat: inPrivate,
+      complete: !!account?.contactVerifiedAt && inPublic && inPrivate,
+      userStatus: user?.status ?? null,
+    };
   }
 
   /**
-   * Entry point for every Telegram webhook update. Kept deliberately
-   * tolerant of unrecognized update shapes — Telegram sends many update
-   * types we don't act on, and a webhook endpoint must never 500 on those,
-   * or Telegram will keep retrying and eventually disable the webhook.
+   * Every Telegram update lands here. Deliberately tolerant of shapes we do
+   * not handle: a webhook that 500s makes Telegram retry and eventually
+   * disable itself.
    */
   async handleUpdate(update: any): Promise<void> {
-    if (update.message?.text?.startsWith('/start')) {
-      await this.handleStartCommand(update.message);
-      return;
+    try {
+      if (update.message?.contact) {
+        await this.handleSharedContact(update.message);
+        return;
+      }
+      if (update.message?.text) {
+        await this.handleText(update.message);
+        return;
+      }
+      if (update.chat_member) {
+        await this.handleChatMemberUpdate(update.chat_member);
+        return;
+      }
+      if (update.chat_join_request) {
+        await this.handleJoinRequest(update.chat_join_request);
+        return;
+      }
+    } catch (err) {
+      // Swallow and log: Telegram must always get its 200.
+      this.logger.error(`Failed handling update: ${err}`);
     }
-    if (update.chat_member) {
-      await this.handleChatMemberUpdate(update.chat_member);
-      return;
-    }
-    if (update.chat_join_request) {
-      await this.handleJoinRequest(update.chat_join_request);
-      return;
-    }
-    // Anything else (edited_message, my_chat_member, etc.) is ignored by design.
   }
 
-  private async handleStartCommand(message: any): Promise<void> {
-    const token = (message.text as string).split(' ')[1]?.trim();
+  private async handleText(message: any): Promise<void> {
     const telegramUserId = BigInt(message.from.id);
+    const text = (message.text as string).trim();
 
-    if (!token) {
+    if (text.startsWith('/start')) {
       await this.bot.sendMessage(
         telegramUserId,
-        'Please use the link provided in the app to connect your account.',
+        'Welcome to BBAZAAR group of companies.\n\nReply with the 12-digit Aadhaar number you used to sign up in the app, and I will connect this Telegram account to it.',
       );
       return;
     }
 
-    const linkToken = await this.prisma.telegramLinkToken.findUnique({ where: { token } });
-    if (!linkToken || linkToken.consumedAt || linkToken.expiresAt < new Date()) {
-      await this.bot.sendMessage(telegramUserId, 'This link has expired. Please request a new one in the app.');
+    const digits = text.replace(/\s|-/g, '');
+    if (/^[0-9]{12}$/.test(digits)) {
+      await this.bindByAadhaar(telegramUserId, digits, message.from.username ?? null);
       return;
     }
 
-    const existingBinding = await this.prisma.telegramAccount.findUnique({ where: { telegramUserId } });
-    if (existingBinding && existingBinding.userId !== linkToken.userId) {
-      await this.bot.sendMessage(telegramUserId, 'This Telegram account is already linked to a different candidate.');
+    if (/^confirm$/i.test(text)) {
+      await this.recheckAndReport(telegramUserId);
       return;
     }
 
-    await this.prisma.$transaction(async (tx: any) => {
-      await tx.telegramLinkToken.update({ where: { id: linkToken.id }, data: { consumedAt: new Date() } });
-      await tx.telegramAccount.upsert({
-        where: { userId: linkToken.userId },
-        update: {
-          telegramUserId,
-          telegramUsername: message.from.username ?? null,
-          contactVerifiedAt: new Date(),
-          status: 'CONNECTED',
-        },
-        create: {
-          userId: linkToken.userId,
-          telegramUserId,
-          telegramUsername: message.from.username ?? null,
-          contactVerifiedAt: new Date(),
-          status: 'CONNECTED',
-        },
-      });
-      await tx.user.update({ where: { id: linkToken.userId }, data: { status: 'GROUP_PENDING' } });
+    await this.bot.sendMessage(
+      telegramUserId,
+      'Please reply with your 12-digit Aadhaar number, or type "confirm" once you have joined both channels.',
+    );
+  }
+
+  /**
+   * Looks up the signup by Aadhaar hash. The number is hashed on arrival and
+   * the plaintext never leaves this function.
+   */
+  private async bindByAadhaar(
+    telegramUserId: bigint,
+    aadhaarDigits: string,
+    username: string | null,
+  ): Promise<void> {
+    const pepper = this.config.get<string>('identity.aadhaarHashPepper') ?? '';
+    let aadhaarHash: string;
+    try {
+      aadhaarHash = hashAadhaar(aadhaarDigits, pepper);
+    } catch {
+      await this.bot.sendMessage(telegramUserId, 'That does not look like a valid Aadhaar number. Please check and send it again.');
+      return;
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { aadhaarHash } });
+    if (!user) {
+      // Same message whether the number is unregistered or malformed — the bot
+      // must not become a way to test which Aadhaar numbers hold accounts.
+      await this.bot.sendMessage(
+        telegramUserId,
+        'No account was found for that number. Please sign up in the BBAZAAR app first, then come back here.',
+      );
+      return;
+    }
+
+    // One Telegram account cannot serve two candidates.
+    const existingForTelegram = await this.prisma.telegramAccount.findUnique({
+      where: { telegramUserId },
+    });
+    if (existingForTelegram && existingForTelegram.userId !== user.id) {
+      await this.bot.sendMessage(
+        telegramUserId,
+        'This Telegram account is already linked to a different candidate.',
+      );
+      return;
+    }
+
+    // ...and one candidate cannot hop between Telegram accounts once verified.
+    const existingForUser = await this.prisma.telegramAccount.findUnique({
+      where: { userId: user.id },
+    });
+    if (
+      existingForUser &&
+      existingForUser.telegramUserId !== telegramUserId &&
+      existingForUser.contactVerifiedAt
+    ) {
+      await this.bot.sendMessage(
+        telegramUserId,
+        'This account has already been verified from another Telegram account.',
+      );
+      return;
+    }
+
+    await this.prisma.telegramAccount.upsert({
+      where: { userId: user.id },
+      update: { telegramUserId, telegramUsername: username, status: 'PENDING' },
+      create: { userId: user.id, telegramUserId, telegramUsername: username, status: 'PENDING' },
     });
 
     await this.audit.record({
-      actorUserId: linkToken.userId,
-      action: 'TELEGRAM_ACCOUNT_CONNECTED',
-      entityType: 'User',
-      entityId: linkToken.userId,
+      actorUserId: user.id,
+      action: 'TELEGRAM_AADHAAR_MATCHED',
+      entityType: 'TelegramAccount',
+      entityId: user.id,
     });
 
-    const requiredChats = this.config.get<bigint[]>('telegram.requiredChatIds') ?? [];
-    const chatList = requiredChats.length > 0 ? '\n\nNext, join the required group(s)/channel(s) from the app.' : '';
-    await this.bot.sendMessage(telegramUserId, `Account connected.${chatList}`);
+    await this.bot.sendMessageWithContactButton(
+      telegramUserId,
+      'Account found. Now tap the button below to share your contact, so we can confirm this Telegram account uses your Aadhaar-linked mobile number.',
+    );
+  }
+
+  /**
+   * Telegram attaches `phone_number` itself, so this is evidence rather than
+   * user input — provided we check `contact.user_id` is the sender, which
+   * stops a forwarded contact card from passing as the sender's own.
+   */
+  private async handleSharedContact(message: any): Promise<void> {
+    const telegramUserId = BigInt(message.from.id);
+    const contact = message.contact;
+
+    if (!contact.user_id || BigInt(contact.user_id) !== telegramUserId) {
+      await this.bot.sendMessage(
+        telegramUserId,
+        'Please share your own contact using the button, not another person’s contact card.',
+      );
+      return;
+    }
+
+    const account = await this.prisma.telegramAccount.findUnique({ where: { telegramUserId } });
+    if (!account) {
+      await this.bot.sendMessage(telegramUserId, 'Please send your Aadhaar number first.');
+      return;
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: account.userId } });
+    if (!user) return;
+
+    if (normalisePhone(contact.phone_number) !== normalisePhone(user.mobileE164)) {
+      await this.audit.record({
+        actorUserId: user.id,
+        action: 'TELEGRAM_CONTACT_MISMATCH',
+        entityType: 'TelegramAccount',
+        entityId: account.id,
+      });
+      await this.bot.sendMessage(
+        telegramUserId,
+        'The mobile number on this Telegram account does not match the number you signed up with. Both must be the number linked to your Aadhaar.',
+      );
+      return;
+    }
+
+    await this.prisma.telegramAccount.update({
+      where: { id: account.id },
+      data: { contactVerifiedAt: new Date(), status: 'CONNECTED' },
+    });
+
+    await this.audit.record({
+      actorUserId: user.id,
+      action: 'TELEGRAM_CONTACT_VERIFIED',
+      entityType: 'TelegramAccount',
+      entityId: account.id,
+    });
+
+    if (user.status === 'TELEGRAM_PENDING') {
+      await this.prisma.user.update({ where: { id: user.id }, data: { status: 'GROUP_PENDING' } });
+    }
+
+    const pub = this.config.get<string>('telegram.publicChatInviteLink') ?? '(link not configured)';
+    const priv = this.config.get<string>('telegram.privateChatInviteLink') ?? '(link not configured)';
+    await this.bot.sendMessage(
+      telegramUserId,
+      `Number confirmed.\n\nLast step — join both of these:\n1. ${pub}\n2. ${priv}\n\nThe second one needs admin approval; sending the request is enough. Type "confirm" when you have done both.`,
+    );
   }
 
   private async handleChatMemberUpdate(chatMember: any): Promise<void> {
@@ -121,16 +300,17 @@ export class TelegramService {
     const status = chatMember.new_chat_member.status as string;
 
     const account = await this.prisma.telegramAccount.findUnique({ where: { telegramUserId } });
-    if (!account) return; // membership change for someone who hasn't bound an account — ignore
+    if (!account) return;
 
     const isMember = ['member', 'administrator', 'creator'].includes(status);
+    const hasLeft = ['left', 'kicked'].includes(status);
 
     await this.prisma.telegramMembership.upsert({
       where: { userId_telegramChatId: { userId: account.userId, telegramChatId: chatId } },
       update: {
-        status: isMember ? 'APPROVED' : status === 'left' || status === 'kicked' ? 'LEFT' : 'REQUESTED',
+        status: isMember ? 'APPROVED' : hasLeft ? 'LEFT' : 'REQUESTED',
         joinedAt: isMember ? new Date() : undefined,
-        leftAt: !isMember ? new Date() : undefined,
+        leftAt: hasLeft ? new Date() : undefined,
       },
       create: {
         userId: account.userId,
@@ -141,17 +321,12 @@ export class TelegramService {
       },
     });
 
-    if (isMember) {
-      await this.checkAllRequiredChatsJoined(account.userId);
-    }
+    await this.tryActivate(account.userId, telegramUserId);
   }
 
   /**
-   * Deliberately does NOT auto-approve join requests — that's left to
-   * whoever administers the actual Telegram group, so a human stays in the
-   * loop on who gets into a group carrying the institute's name. We just
-   * record that a request happened; approval arrives later as a
-   * `chat_member` update once a group admin acts on it.
+   * Records the request without approving it. Who gets into a group carrying
+   * the company's name stays a human decision.
    */
   private async handleJoinRequest(joinRequest: any): Promise<void> {
     const telegramUserId = BigInt(joinRequest.from.id);
@@ -170,22 +345,90 @@ export class TelegramService {
         status: 'REQUESTED',
       },
     });
+
+    await this.tryActivate(account.userId, telegramUserId);
   }
 
-  private async checkAllRequiredChatsJoined(userId: string): Promise<void> {
-    const requiredChatIds = this.config.get<bigint[]>('telegram.requiredChatIds') ?? [];
-    if (requiredChatIds.length === 0) {
-      this.logger.warn('TELEGRAM_REQUIRED_CHAT_IDS is empty — treating Telegram step as satisfied by default.');
-      await this.users.markTelegramVerified(userId);
+  /** "confirm" in chat: re-read membership from Telegram, then report back. */
+  private async recheckAndReport(telegramUserId: bigint): Promise<void> {
+    const account = await this.prisma.telegramAccount.findUnique({ where: { telegramUserId } });
+    if (!account) {
+      await this.bot.sendMessage(telegramUserId, 'Please send your Aadhaar number first.');
+      return;
+    }
+    if (!account.contactVerifiedAt) {
+      await this.bot.sendMessage(telegramUserId, 'Please share your contact first, using the button above.');
       return;
     }
 
-    const memberships = await this.prisma.telegramMembership.findMany({
-      where: { userId, telegramChatId: { in: requiredChatIds }, status: 'APPROVED' },
-    });
+    const { publicChatId, privateChatId } = this.requiredChats();
 
-    if (memberships.length >= requiredChatIds.length) {
-      await this.users.markTelegramVerified(userId);
+    // Ask Telegram directly rather than trusting our own mirror: chat_member
+    // updates can be missed while the webhook is down.
+    for (const [chatId, chatType] of [
+      [publicChatId, 'CHANNEL'],
+      [privateChatId, 'GROUP'],
+    ] as const) {
+      const member = await this.bot.getChatMember(chatId, telegramUserId);
+      if (!member) continue;
+      const isMember = ['member', 'administrator', 'creator'].includes(member.status);
+      if (!isMember) continue;
+      await this.prisma.telegramMembership.upsert({
+        where: { userId_telegramChatId: { userId: account.userId, telegramChatId: chatId } },
+        update: { status: 'APPROVED', joinedAt: new Date() },
+        create: {
+          userId: account.userId,
+          telegramChatId: chatId,
+          chatType,
+          status: 'APPROVED',
+          joinedAt: new Date(),
+        },
+      });
+    }
+
+    const activated = await this.tryActivate(account.userId, telegramUserId);
+    if (!activated) {
+      const state = await this.getVerificationState(account.userId);
+      const missing = [
+        state.joinedPublicChat ? null : 'the public channel',
+        state.joinedPrivateChat ? null : 'the private channel',
+      ].filter(Boolean);
+      await this.bot.sendMessage(
+        telegramUserId,
+        `Not done yet — still waiting on: ${missing.join(' and ')}. Join and type "confirm" again.`,
+      );
     }
   }
+
+  /** Activates only when every step is genuinely satisfied. Idempotent. */
+  private async tryActivate(userId: string, telegramUserId: bigint): Promise<boolean> {
+    const state = await this.getVerificationState(userId);
+    if (!state.complete) return false;
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return false;
+    if (user.status === 'GROUP_PENDING') {
+      await this.users.markTelegramVerified(userId);
+      await this.bot.sendMessage(
+        telegramUserId,
+        'You are verified. You can now log in to the BBAZAAR app with your mobile number and password.',
+      );
+    }
+    return true;
+  }
+
+  /** App-side "I've joined, check again" button. */
+  async recheckForUser(userId: string) {
+    const account = await this.prisma.telegramAccount.findUnique({ where: { userId } });
+    if (!account) {
+      throw new BadRequestException('Start the Telegram bot and send your Aadhaar number first.');
+    }
+    await this.recheckAndReport(account.telegramUserId);
+    return this.getVerificationState(userId);
+  }
+}
+
+/** Compares phone numbers by their last 10 digits, so +91/0/spacing agree. */
+function normalisePhone(raw: string): string {
+  return raw.replace(/\D/g, '').slice(-10);
 }

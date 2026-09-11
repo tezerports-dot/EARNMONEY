@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { IdentityProvider } from './identity-provider.interface';
+import { FraudService } from '../fraud/fraud.service';
 
 @Injectable()
 export class IdentityService {
@@ -14,6 +15,7 @@ export class IdentityService {
     private readonly audit: AuditLogService,
     private readonly config: ConfigService,
     @Inject('IdentityProvider') private readonly provider: IdentityProvider,
+    private readonly fraud: FraudService,
   ) {}
 
   async startVerification(userId: string) {
@@ -107,7 +109,9 @@ export class IdentityService {
       }
       await this.users.markIdentityVerified(verification.userId);
     } else if (result.status === 'REJECTED') {
-      await this.users.markIdentityRejected(verification.userId, result.failureReasonCode);
+      // Counts the rejection; only flags the account and strikes the referrer
+      // once it has failed `kyc_rejection_attempts` times independently.
+      await this.fraud.recordVerificationRejection(verification.userId, result.failureReasonCode);
     }
 
     await this.audit.record({

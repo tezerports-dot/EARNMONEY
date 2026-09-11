@@ -44,6 +44,31 @@ export class TelegramBotService {
   }
 
   /**
+   * Same as sendMessage, but attaches Telegram's native "share contact"
+   * keyboard. The resulting contact is signed by Telegram rather than typed
+   * by the user, which is what makes the number trustworthy.
+   */
+  async sendMessageWithContactButton(telegramUserId: bigint, text: string): Promise<void> {
+    try {
+      await fetch(`${this.baseUrl}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: telegramUserId.toString(),
+          text,
+          reply_markup: {
+            keyboard: [[{ text: 'Share my contact', request_contact: true }]],
+            resize_keyboard: true,
+            one_time_keyboard: true,
+          },
+        }),
+      });
+    } catch (err) {
+      this.logger.error(`sendMessageWithContactButton failed for user ${telegramUserId}: ${err}`);
+    }
+  }
+
+  /**
    * Call this once, manually, after deploying, to point Telegram's servers
    * at your webhook endpoint. Not called automatically by the app.
    *   POST {baseUrl}/setWebhook  { url, secret_token }

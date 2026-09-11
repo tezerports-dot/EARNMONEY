@@ -45,15 +45,37 @@ export default () => ({
     webhookSecret: process.env.IDENTITY_PROVIDER_WEBHOOK_SECRET,
   },
 
+  identity: {
+    // Keys the Aadhaar HMAC. Must be set, must never be committed, and must
+    // never be rotated casually — changing it invalidates every stored hash
+    // and so breaks duplicate detection for all existing users.
+    aadhaarHashPepper: process.env.AADHAAR_HASH_PEPPER,
+  },
+
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN,
+    // Used to build the t.me deep link the app shows. Without it the link is
+    // unusable, so the Telegram endpoints refuse to serve one rather than
+    // handing out a broken URL.
+    botUsername: process.env.TELEGRAM_BOT_USERNAME,
     webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET,
-    // Configure these once the institute's actual channel/group is created.
-    // Numeric Telegram chat IDs are negative for groups/channels.
-    requiredChatIds: (process.env.TELEGRAM_REQUIRED_CHAT_IDS || '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .map((s) => BigInt(s)),
+
+    // The two chats every candidate must be in before verification completes.
+    // Numeric Telegram chat IDs, negative for groups/channels.
+    //  - public: normal join, membership shows up as `member` straight away.
+    //  - private: invite-link-with-approval, so a pending join REQUEST is
+    //    accepted as satisfying this step (a human admin approves later).
+    publicChatId: process.env.TELEGRAM_PUBLIC_CHAT_ID
+      ? BigInt(process.env.TELEGRAM_PUBLIC_CHAT_ID)
+      : undefined,
+    privateChatId: process.env.TELEGRAM_PRIVATE_CHAT_ID
+      ? BigInt(process.env.TELEGRAM_PRIVATE_CHAT_ID)
+      : undefined,
+    publicChatInviteLink: process.env.TELEGRAM_PUBLIC_CHAT_INVITE_LINK,
+    privateChatInviteLink: process.env.TELEGRAM_PRIVATE_CHAT_INVITE_LINK,
+
+    // Separate from the two above: the group for candidates who have finished
+    // BOTH counters and been selected. Served only to qualified users.
+    selectedGroupInviteLink: process.env.TELEGRAM_SELECTED_GROUP_INVITE_LINK,
   },
 });

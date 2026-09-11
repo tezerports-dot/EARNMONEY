@@ -127,15 +127,29 @@ enum TrainingEnrollmentStatus {
 // ---------------------------------------------------------------------------
 
 model User {
-  id               String     @id @default(uuid())
-  mobileE164       String     @unique @map("mobile_e164")
-  passwordHash     String     @map("password_hash")
-  role             Role       @default(CANDIDATE)
-  status           UserStatus @default(REGISTERED)
-  referralCode     String     @unique @map("referral_code")
-  referredByUserId String?    @map("referred_by_user_id")
-  referredBy       User?      @relation("UserReferrals", fields: [referredByUserId], references: [id])
-  referredUsers    User[]     @relation("UserReferrals")
+  id           String @id @default(uuid())
+  mobileE164   String @unique @map("mobile_e164")
+  passwordHash String @map("password_hash")
+
+  // Aadhaar is NEVER stored in plaintext. `aadhaarHash` is an HMAC-SHA256 of
+  // the digits keyed with AADHAAR_HASH_PEPPER (held outside the database), so
+  // a database leak alone cannot be brute-forced back to the 12-digit number.
+  // The unique constraint is what makes "no duplicate verified users" a
+  // database guarantee rather than an application-level check.
+  // `aadhaarLast4` is the only part ever shown or returned by the API.
+  aadhaarHash  String? @unique @map("aadhaar_hash")
+  aadhaarLast4 String? @map("aadhaar_last4")
+
+  // Count of referred users whose identity verification was conclusively
+  // rejected (3 independent rejections). At `fraud_strike_limit` the referrer
+  // is suspended. See FraudService.
+  fakeReferralCount Int        @default(0) @map("fake_referral_count")
+  role              Role       @default(CANDIDATE)
+  status            UserStatus @default(REGISTERED)
+  referralCode      String     @unique @map("referral_code")
+  referredByUserId  String?    @map("referred_by_user_id")
+  referredBy        User?      @relation("UserReferrals", fields: [referredByUserId], references: [id])
+  referredUsers     User[]     @relation("UserReferrals")
 
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
@@ -147,14 +161,14 @@ model User {
   telegramMemberships  TelegramMembership[]
   refreshTokens        RefreshToken[]
 
-  referralsMade     Referral[] @relation("Referrer")
-  referralReceived  Referral?  @relation("Referred")
-  referralCredits   ReferralCredit[] @relation("CreditReferrer")
+  referralsMade    Referral[]       @relation("Referrer")
+  referralReceived Referral?        @relation("Referred")
+  referralCredits  ReferralCredit[] @relation("CreditReferrer")
 
-  challengeAttempts ChallengeAttempt[]
-  applications      Application[]
+  challengeAttempts   ChallengeAttempt[]
+  applications        Application[]
   trainingEnrollments TrainingEnrollment[]
-  auditLogsAsActor  AuditLog[]
+  auditLogsAsActor    AuditLog[]
 
   @@index([referredByUserId])
   @@index([status])
@@ -162,14 +176,14 @@ model User {
 }
 
 model RefreshToken {
-  id         String    @id @default(uuid())
-  userId     String    @map("user_id")
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash  String    @unique @map("token_hash")
-  expiresAt  DateTime  @map("expires_at")
-  revokedAt  DateTime? @map("revoked_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
-  replacedByTokenHash String? @map("replaced_by_token_hash")
+  id                  String    @id @default(uuid())
+  userId              String    @map("user_id")
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash           String    @unique @map("token_hash")
+  expiresAt           DateTime  @map("expires_at")
+  revokedAt           DateTime? @map("revoked_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  replacedByTokenHash String?   @map("replaced_by_token_hash")
 
   @@index([userId])
   @@map("refresh_tokens")
@@ -180,34 +194,38 @@ model RefreshToken {
 // ---------------------------------------------------------------------------
 
 model IdentityVerification {
-  id                String                      @id @default(uuid())
-  userId            String                      @unique @map("user_id")
-  user              User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                String                     @id @default(uuid())
+  userId            String                     @unique @map("user_id")
+  user              User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
   provider          String
-  providerReference String?                     @map("provider_reference")
-  status            IdentityVerificationStatus  @default(PENDING)
-  verifiedAt        DateTime?                   @map("verified_at")
-  failureReasonCode String?                     @map("failure_reason_code")
-  createdAt         DateTime                    @default(now()) @map("created_at")
-  updatedAt         DateTime                    @updatedAt @map("updated_at")
+  providerReference String?                    @map("provider_reference")
+  status            IdentityVerificationStatus @default(PENDING)
+  // Number of independent rejections. One rejection is not conclusive — the
+  // record is only treated as confirmed-fake at `kyc_rejection_attempts`
+  // (default 3), which is what then counts as a strike against the referrer.
+  rejectionCount    Int                        @default(0) @map("rejection_count")
+  verifiedAt        DateTime?                  @map("verified_at")
+  failureReasonCode String?                    @map("failure_reason_code")
+  createdAt         DateTime                   @default(now()) @map("created_at")
+  updatedAt         DateTime                   @updatedAt @map("updated_at")
+  // Never store a full Aadhaar (or other national ID) number in this table.
 
   @@index([status])
   @@map("identity_verifications")
-  // Never store a full Aadhaar (or other national ID) number in this table.
 }
 
 // Encrypted/tokenized boundary for any identity attribute that must be kept
 // at all — access is only ever through a narrow service method, never a
 // generic query. Nothing here is ever rendered to another candidate.
 model ProtectedIdentity {
-  id                String   @id @default(uuid())
-  userId            String   @unique @map("user_id")
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  identityToken     String   @unique @map("identity_token")
-  maskedIdentifier  String   @map("masked_identifier")
-  dataClassification String  @map("data_classification")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  id                 String   @id @default(uuid())
+  userId             String   @unique @map("user_id")
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  identityToken      String   @unique @map("identity_token")
+  maskedIdentifier   String   @map("masked_identifier")
+  dataClassification String   @map("data_classification")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
   @@map("protected_identity")
 }
@@ -217,14 +235,14 @@ model ProtectedIdentity {
 // ---------------------------------------------------------------------------
 
 model TelegramAccount {
-  id                String                 @id @default(uuid())
-  userId            String                 @unique @map("user_id")
-  user              User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  telegramUserId    BigInt                 @unique @map("telegram_user_id")
-  telegramUsername  String?                @map("telegram_username")
-  contactVerifiedAt DateTime?              @map("contact_verified_at")
-  connectedAt       DateTime               @default(now()) @map("connected_at")
-  status            TelegramAccountStatus  @default(PENDING)
+  id                String                @id @default(uuid())
+  userId            String                @unique @map("user_id")
+  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  telegramUserId    BigInt                @unique @map("telegram_user_id")
+  telegramUsername  String?               @map("telegram_username")
+  contactVerifiedAt DateTime?             @map("contact_verified_at")
+  connectedAt       DateTime              @default(now()) @map("connected_at")
+  status            TelegramAccountStatus @default(PENDING)
 
   @@map("telegram_accounts")
 }
@@ -234,27 +252,27 @@ model TelegramAccount {
 // doesn't require typing anything, and so the token can't be guessed or
 // reused. One-time use, consumed at bind time.
 model TelegramLinkToken {
-  id          String    @id @default(uuid())
-  userId      String    @map("user_id")
-  token       String    @unique
-  expiresAt   DateTime  @map("expires_at")
-  consumedAt  DateTime? @map("consumed_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  token      String    @unique
+  expiresAt  DateTime  @map("expires_at")
+  consumedAt DateTime? @map("consumed_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
 
   @@index([userId])
   @@map("telegram_link_tokens")
 }
 
 model TelegramMembership {
-  id              String                     @id @default(uuid())
-  userId          String                     @map("user_id")
-  user            User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  telegramChatId  BigInt                     @map("telegram_chat_id")
-  chatType        TelegramChatType           @map("chat_type")
-  status          TelegramMembershipStatus   @default(REQUESTED)
-  joinRequestedAt DateTime                   @default(now()) @map("join_requested_at")
-  joinedAt        DateTime?                  @map("joined_at")
-  leftAt          DateTime?                  @map("left_at")
+  id              String                   @id @default(uuid())
+  userId          String                   @map("user_id")
+  user            User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  telegramChatId  BigInt                   @map("telegram_chat_id")
+  chatType        TelegramChatType         @map("chat_type")
+  status          TelegramMembershipStatus @default(REQUESTED)
+  joinRequestedAt DateTime                 @default(now()) @map("join_requested_at")
+  joinedAt        DateTime?                @map("joined_at")
+  leftAt          DateTime?                @map("left_at")
 
   @@unique([userId, telegramChatId])
   @@map("telegram_memberships")
@@ -265,16 +283,16 @@ model TelegramMembership {
 // ---------------------------------------------------------------------------
 
 model Referral {
-  id                 String         @id @default(uuid())
-  referrerUserId     String         @map("referrer_user_id")
-  referrer           User           @relation("Referrer", fields: [referrerUserId], references: [id])
-  referredUserId     String         @unique @map("referred_user_id")
-  referred           User           @relation("Referred", fields: [referredUserId], references: [id])
-  status             ReferralStatus @default(PENDING)
-  creditedAt         DateTime?      @map("credited_at")
-  rejectionReasonCode String?       @map("rejection_reason_code")
-  createdAt          DateTime       @default(now()) @map("created_at")
-  updatedAt          DateTime       @updatedAt @map("updated_at")
+  id                  String         @id @default(uuid())
+  referrerUserId      String         @map("referrer_user_id")
+  referrer            User           @relation("Referrer", fields: [referrerUserId], references: [id])
+  referredUserId      String         @unique @map("referred_user_id")
+  referred            User           @relation("Referred", fields: [referredUserId], references: [id])
+  status              ReferralStatus @default(PENDING)
+  creditedAt          DateTime?      @map("credited_at")
+  rejectionReasonCode String?        @map("rejection_reason_code")
+  createdAt           DateTime       @default(now()) @map("created_at")
+  updatedAt           DateTime       @updatedAt @map("updated_at")
 
   @@index([referrerUserId])
   @@index([status])
@@ -309,17 +327,17 @@ model ReferralCredit {
 // ---------------------------------------------------------------------------
 
 model KycTrainingScenario {
-  id                 String   @id @default(uuid())
-  title              String
+  id                String   @id @default(uuid())
+  title             String
   // Synthetic document fields shown to the candidate — entirely fictitious.
-  syntheticDocument  Json     @map("synthetic_document")
+  syntheticDocument Json     @map("synthetic_document")
   // The correct outcome(s) an admin/trainer has defined for this scenario,
   // e.g. { "valid": false, "issue": "name_mismatch" }
-  expectedOutcome    Json     @map("expected_outcome")
-  difficulty         String   @default("standard")
-  isActive           Boolean  @default(true) @map("is_active")
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
+  expectedOutcome   Json     @map("expected_outcome")
+  difficulty        String   @default("standard")
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
   attempts ChallengeAttempt[]
 
@@ -327,18 +345,18 @@ model KycTrainingScenario {
 }
 
 model ChallengeAttempt {
-  id                String          @id @default(uuid())
-  candidateUserId   String          @map("candidate_user_id")
-  candidate         User            @relation(fields: [candidateUserId], references: [id], onDelete: Cascade)
-  scenarioId        String          @map("scenario_id")
-  scenario          KycTrainingScenario @relation(fields: [scenarioId], references: [id])
-  status            ChallengeStatus @default(ISSUED)
-  submittedOutcome  Json?           @map("submitted_outcome")
-  isCorrect         Boolean?        @map("is_correct")
-  attempts          Int             @default(0)
-  expiresAt         DateTime        @map("expires_at")
-  createdAt         DateTime        @default(now()) @map("created_at")
-  completedAt       DateTime?       @map("completed_at")
+  id               String              @id @default(uuid())
+  candidateUserId  String              @map("candidate_user_id")
+  candidate        User                @relation(fields: [candidateUserId], references: [id], onDelete: Cascade)
+  scenarioId       String              @map("scenario_id")
+  scenario         KycTrainingScenario @relation(fields: [scenarioId], references: [id])
+  status           ChallengeStatus     @default(ISSUED)
+  submittedOutcome Json?               @map("submitted_outcome")
+  isCorrect        Boolean?            @map("is_correct")
+  attempts         Int                 @default(0)
+  expiresAt        DateTime            @map("expires_at")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  completedAt      DateTime?           @map("completed_at")
 
   @@index([candidateUserId])
   @@map("challenge_attempts")
@@ -364,13 +382,13 @@ model Application {
 }
 
 model Vacancy {
-  id                String        @id @default(uuid())
-  state             String
-  tier              String
-  title             String
-  postCount         Int           @map("post_count")
-  salaryMonthlyPaise BigInt       @map("salary_monthly_paise")
-  status            VacancyStatus @default(OPEN)
+  id                 String        @id @default(uuid())
+  state              String
+  tier               String
+  title              String
+  postCount          Int           @map("post_count")
+  salaryMonthlyPaise BigInt        @map("salary_monthly_paise")
+  status             VacancyStatus @default(OPEN)
 
   @@map("vacancies")
 }
@@ -391,14 +409,14 @@ model TrainingBatch {
 }
 
 model TrainingEnrollment {
-  id              String                    @id @default(uuid())
-  batchId         String                    @map("batch_id")
-  batch           TrainingBatch             @relation(fields: [batchId], references: [id])
-  userId          String                    @map("user_id")
-  user            User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  status          TrainingEnrollmentStatus  @default(ENROLLED)
-  attendanceDays  Int                       @default(0) @map("attendance_days")
-  createdAt       DateTime                  @default(now()) @map("created_at")
+  id             String                   @id @default(uuid())
+  batchId        String                   @map("batch_id")
+  batch          TrainingBatch            @relation(fields: [batchId], references: [id])
+  userId         String                   @map("user_id")
+  user           User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status         TrainingEnrollmentStatus @default(ENROLLED)
+  attendanceDays Int                      @default(0) @map("attendance_days")
+  createdAt      DateTime                 @default(now()) @map("created_at")
 
   @@unique([batchId, userId])
   @@map("training_enrollments")
@@ -409,19 +427,19 @@ model TrainingEnrollment {
 // ---------------------------------------------------------------------------
 
 model AuditLog {
-  id           String   @id @default(uuid())
-  actorUserId  String?  @map("actor_user_id")
-  actor        User?    @relation(fields: [actorUserId], references: [id])
-  action       String
-  entityType   String   @map("entity_type")
-  entityId     String?  @map("entity_id")
-  metadata     Json
-  ipHash       String?  @map("ip_hash")
-  createdAt    DateTime @default(now()) @map("created_at")
+  id          String   @id @default(uuid())
+  actorUserId String?  @map("actor_user_id")
+  actor       User?    @relation(fields: [actorUserId], references: [id])
+  action      String
+  entityType  String   @map("entity_type")
+  entityId    String?  @map("entity_id")
+  metadata    Json
+  ipHash      String?  @map("ip_hash")
+  createdAt   DateTime @default(now()) @map("created_at")
+  // Never put secrets or full identity values in metadata.
 
   @@index([entityType, entityId])
   @@map("audit_logs")
-  // Never put secrets or full identity values in metadata.
 }
 
 // Admin-tunable thresholds and feature flags. Never hardcode business

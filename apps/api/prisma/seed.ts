@@ -12,7 +12,7 @@ async function main() {
     update: {},
     create: {
       key: 'referral_threshold',
-      value: 3,
+      value: 200,
       description:
         'Number of credited referrals a candidate needs before application becomes eligible.',
     },
@@ -23,9 +23,31 @@ async function main() {
     update: {},
     create: {
       key: 'kyc_challenge_threshold',
-      value: 3,
+      value: 200,
       description:
         'Number of KYC training scenarios a candidate must pass correctly before application becomes eligible.',
+    },
+  });
+
+  await prisma.systemConfig.upsert({
+    where: { key: 'fraud_strike_limit' },
+    update: {},
+    create: {
+      key: 'fraud_strike_limit',
+      value: 8,
+      description:
+        'Confirmed fake referrals a candidate may accumulate before the account is suspended.',
+    },
+  });
+
+  await prisma.systemConfig.upsert({
+    where: { key: 'kyc_rejection_attempts' },
+    update: {},
+    create: {
+      key: 'kyc_rejection_attempts',
+      value: 3,
+      description:
+        'Independent verification rejections needed before a referred account is treated as conclusively fake.',
     },
   });
 
@@ -139,6 +161,21 @@ async function main() {
     });
     console.log('Seeded dev superadmin +910000000000 / ChangeMe123!DevOnly — DEV ONLY, do not use in production.');
   }
+
+  // Sample vacancies so the home screen renders something real on a fresh
+  // install. Replace these with the actual openings before launch.
+  const vacancies = [
+    { state: 'Rajasthan', tier: 'tier1', title: 'Retail Outlet Associate', postCount: 40, salaryMonthlyPaise: 1800000n },
+    { state: 'Uttar Pradesh', tier: 'tier1', title: 'Retail Outlet Associate', postCount: 60, salaryMonthlyPaise: 1800000n },
+    { state: 'Gujarat', tier: 'tier2', title: 'Store Supervisor', postCount: 25, salaryMonthlyPaise: 2400000n },
+    { state: 'Madhya Pradesh', tier: 'tier2', title: 'Store Supervisor', postCount: 20, salaryMonthlyPaise: 2400000n },
+    { state: 'Maharashtra', tier: 'tier3', title: 'Area Coordinator', postCount: 10, salaryMonthlyPaise: 3200000n },
+  ];
+  for (const v of vacancies) {
+    const id = `${v.state}-${v.tier}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    await prisma.vacancy.upsert({ where: { id }, update: {}, create: { id, ...v } });
+  }
+  console.log(`Seeded ${vacancies.length} sample vacancies.`);
 
   console.log('Seed complete.');
 }

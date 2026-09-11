@@ -3,6 +3,7 @@ import { ReferralsService } from './referrals.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { EligibilityService } from '../eligibility/eligibility.service';
 import { AuditLogService } from '../audit/audit-log.service';
+import { SystemConfigService } from '../system-config/system-config.service';
 
 describe('ReferralsService', () => {
   let service: ReferralsService;
@@ -23,6 +24,13 @@ describe('ReferralsService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: EligibilityService, useValue: eligibility },
         { provide: AuditLogService, useValue: { record: jest.fn() } },
+        {
+          provide: SystemConfigService,
+          useValue: {
+            getReferralThreshold: jest.fn().mockResolvedValue(200),
+            getFraudStrikeLimit: jest.fn().mockResolvedValue(8),
+          },
+        },
       ],
     }).compile();
 

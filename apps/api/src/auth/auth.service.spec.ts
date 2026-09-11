@@ -20,12 +20,18 @@ describe('AuthService', () => {
     'jwt.accessSecret': 'test-access-secret',
     'jwt.accessTtl': '15m',
     'jwt.refreshTtlDays': 30,
+    'identity.aadhaarHashPepper': 'test-pepper-not-a-real-secret',
   };
+
+  // Verhoeff-valid test numbers. Real Aadhaar numbers must never appear in
+  // tests or fixtures.
+  const VALID_AADHAAR = '234567890124';
 
   beforeEach(async () => {
     prisma = {
       user: {
         findUnique: jest.fn(),
+        findFirst: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
       },
@@ -62,14 +68,16 @@ describe('AuthService', () => {
 
   describe('signup', () => {
     const dto = {
+      aadhaarNumber: VALID_AADHAAR,
       mobile: '+919812345678',
       password: 'GoodPassw0rd',
+      confirmPassword: 'GoodPassw0rd',
       captchaToken: 'tok',
       consentAccepted: true as const,
     };
 
     it('creates a new user with a hashed password and no referral', async () => {
-      prisma.user.findUnique.mockResolvedValueOnce(null); // mobile not taken
+      prisma.user.findFirst.mockResolvedValueOnce(null); // mobile + aadhaar both free
       prisma.user.findUnique.mockResolvedValueOnce(null); // referral code uniqueness check
       prisma.user.create.mockImplementation(async ({ data }: any) => ({
         id: 'user-1',
@@ -86,14 +94,77 @@ describe('AuthService', () => {
     });
 
     it('rejects signup when the mobile number is already registered', async () => {
-      prisma.user.findUnique.mockResolvedValueOnce({ id: 'existing-user' });
+      prisma.user.findFirst.mockResolvedValueOnce({ id: 'existing-user' });
 
       await expect(service.signup(dto as any)).rejects.toBeInstanceOf(ConflictException);
       expect(prisma.user.create).not.toHaveBeenCalled();
     });
 
+    it('rejects a second signup on an Aadhaar number already registered', async () => {
+      // The dedupe query is a single OR over mobile and aadhaarHash, so a hit
+      // on either arm must be refused — this is what stops one person holding
+      // two verified accounts under different mobile numbers.
+      prisma.user.findFirst.mockResolvedValueOnce({ id: 'existing-aadhaar-user' });
+
+      await expect(
+        service.signup({ ...dto, mobile: '+919800000000' } as any),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.user.create).not.toHaveBeenCalled();
+    });
+
+    it('queries for duplicates by Aadhaar hash, never by the raw number', async () => {
+      prisma.user.findFirst.mockResolvedValueOnce(null);
+      prisma.user.findUnique.mockResolvedValueOnce(null);
+      prisma.user.create.mockImplementation(async ({ data }: any) => ({ id: 'user-9', ...data }));
+
+      await service.signup(dto as any);
+
+      const where = prisma.user.findFirst.mock.calls[0][0].where;
+      const serialised = JSON.stringify(where);
+      expect(serialised).not.toContain(VALID_AADHAAR);
+      expect(where.OR[1].aadhaarHash).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    it('never persists the raw Aadhaar number, only its hash and last 4 digits', async () => {
+      prisma.user.findFirst.mockResolvedValueOnce(null);
+      prisma.user.findUnique.mockResolvedValueOnce(null);
+      prisma.user.create.mockImplementation(async ({ data }: any) => ({ id: 'user-3', ...data }));
+
+      await service.signup(dto as any);
+
+      const created = prisma.user.create.mock.calls[0][0].data;
+      expect(JSON.stringify(created)).not.toContain(VALID_AADHAAR);
+      expect(created.aadhaarHash).toMatch(/^[0-9a-f]{64}$/);
+      expect(created.aadhaarLast4).toBe('0124');
+    });
+
+    it('rejects an Aadhaar number that fails the Verhoeff checksum', async () => {
+      await expect(
+        service.signup({ ...dto, aadhaarNumber: '234567890125' } as any),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.user.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects signup when the two password fields differ', async () => {
+      await expect(
+        service.signup({ ...dto, confirmPassword: 'SomethingElse1' } as any),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.user.create).not.toHaveBeenCalled();
+    });
+
+    it('starts a new candidate at TELEGRAM_PENDING, not ACTIVE', async () => {
+      prisma.user.findFirst.mockResolvedValueOnce(null);
+      prisma.user.findUnique.mockResolvedValueOnce(null);
+      prisma.user.create.mockImplementation(async ({ data }: any) => ({ id: 'user-4', ...data }));
+
+      const result = await service.signup(dto as any);
+
+      expect(prisma.user.create.mock.calls[0][0].data.status).toBe('TELEGRAM_PENDING');
+      expect(result.status).toBe('TELEGRAM_PENDING');
+    });
+
     it('rejects signup with an invalid referral code', async () => {
-      prisma.user.findUnique.mockResolvedValueOnce(null); // mobile check
+      prisma.user.findFirst.mockResolvedValueOnce(null); // mobile + aadhaar free
       prisma.user.findUnique.mockResolvedValueOnce(null); // referral code lookup -> not found
 
       await expect(
@@ -102,7 +173,7 @@ describe('AuthService', () => {
     });
 
     it('attributes a referral server-side when a valid code is supplied', async () => {
-      prisma.user.findUnique.mockResolvedValueOnce(null); // mobile check
+      prisma.user.findFirst.mockResolvedValueOnce(null); // mobile + aadhaar free
       prisma.user.findUnique.mockResolvedValueOnce({ id: 'referrer-1' }); // referral code lookup
       prisma.user.findUnique.mockResolvedValueOnce(null); // referral code uniqueness check for new user
       prisma.user.create.mockImplementation(async ({ data }: any) => ({ id: 'user-2', ...data }));
@@ -119,7 +190,7 @@ describe('AuthService', () => {
     it('rejects signup when CAPTCHA verification fails', async () => {
       captcha.verify.mockResolvedValueOnce(false);
       await expect(service.signup(dto as any)).rejects.toBeInstanceOf(BadRequestException);
-      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+      expect(prisma.user.findFirst).not.toHaveBeenCalled();
     });
   });
 

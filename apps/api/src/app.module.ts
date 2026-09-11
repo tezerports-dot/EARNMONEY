@@ -14,6 +14,10 @@ import { ReferralsModule } from './referrals/referrals.module';
 import { KycTrainingModule } from './kyc-training/kyc-training.module';
 import { ApplicationsModule } from './applications/applications.module';
 import { IdentityModule } from './identity/identity.module';
+import { TelegramModule } from './telegram/telegram.module';
+import { FraudModule } from './fraud/fraud.module';
+import { VacanciesModule } from './vacancies/vacancies.module';
+import { SelectionModule } from './selection/selection.module';
 
 @Module({
   imports: [
@@ -34,6 +38,10 @@ import { IdentityModule } from './identity/identity.module';
     KycTrainingModule,
     ApplicationsModule,
     IdentityModule,
+    TelegramModule,
+    FraudModule,
+    VacanciesModule,
+    SelectionModule,
   ],
   providers: [
     {

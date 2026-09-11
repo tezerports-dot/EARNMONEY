@@ -8,6 +8,12 @@ export const CONFIG_KEYS = {
   REFERRAL_THRESHOLD: 'referral_threshold',
   KYC_CHALLENGE_THRESHOLD: 'kyc_challenge_threshold',
   REFERRAL_ATTRIBUTION_WINDOW_DAYS: 'referral_attribution_window_days',
+  // How many confirmed-fake referrals a candidate may accumulate before the
+  // account is suspended.
+  FRAUD_STRIKE_LIMIT: 'fraud_strike_limit',
+  // How many independent rejections make a referred user's KYC conclusively
+  // fake, rather than a one-off failure worth re-checking.
+  KYC_REJECTION_ATTEMPTS: 'kyc_rejection_attempts',
 } as const;
 
 @Injectable()
@@ -34,5 +40,13 @@ export class SystemConfigService {
 
   getKycChallengeThreshold(): Promise<number> {
     return this.get<number>(CONFIG_KEYS.KYC_CHALLENGE_THRESHOLD, 3);
+  }
+
+  getFraudStrikeLimit(): Promise<number> {
+    return this.get<number>(CONFIG_KEYS.FRAUD_STRIKE_LIMIT, 8);
+  }
+
+  getKycRejectionAttempts(): Promise<number> {
+    return this.get<number>(CONFIG_KEYS.KYC_REJECTION_ATTEMPTS, 3);
   }
 }

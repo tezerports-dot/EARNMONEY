@@ -13,12 +13,14 @@ export class ReferralsController {
     private readonly eligibility: EligibilityService,
   ) {}
 
+  /** Everything the referral screen renders, in one round trip. */
   @Get('me')
   async myReferrals(@CurrentUser() user: User) {
-    const [referrals, progress] = await Promise.all([
+    const [referrals, progress, stats] = await Promise.all([
       this.referralsService.listMyReferrals(user.id),
       this.eligibility.getProgress(user.id),
+      this.referralsService.getReferralStats(user.id),
     ]);
-    return { referralCode: user.referralCode, referrals, progress };
+    return { referralCode: user.referralCode, referrals, progress, stats };
   }
 }
