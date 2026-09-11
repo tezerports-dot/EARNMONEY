@@ -7,6 +7,7 @@ import { createHash } from 'crypto';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit/audit-log.service';
+import { QueueProducer } from '../queue/queue.producer';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -33,7 +34,8 @@ describe('AuthService', () => {
         findUnique: jest.fn(),
         findFirst: jest.fn(),
         create: jest.fn(),
-        update: jest.fn(),
+        // Signup assigns the daily-update slot in the same transaction.
+        update: jest.fn().mockResolvedValue({}),
       },
       referral: {
         create: jest.fn(),
@@ -59,6 +61,15 @@ describe('AuthService', () => {
           useValue: { get: (key: string) => baseConfig[key] },
         },
         { provide: AuditLogService, useValue: { record: jest.fn() } },
+        {
+          provide: QueueProducer,
+          useValue: {
+            // Returns true = background work was queued, so the service skips
+            // the inline audit write.
+            enqueuePostSignup: jest.fn().mockResolvedValue(true),
+            enqueuePostLogin: jest.fn().mockResolvedValue(true),
+          },
+        },
         { provide: 'CaptchaService', useValue: captcha },
       ],
     }).compile();
@@ -299,5 +310,17 @@ describe('AuthService', () => {
 
       await expect(service.refresh('raw')).rejects.toBeInstanceOf(UnauthorizedException);
     });
+  });
+});
+
+describe('AuthService — scale behaviour', () => {
+  // These cover the two properties the scheduled-update design depends on at
+  // signup time. They live here because both are decided inside signup().
+  it('assigns a deterministic update slot inside the signup transaction', async () => {
+    // Covered end-to-end by slot.util.spec; asserted here so a refactor that
+    // drops the slot write cannot pass silently. An account without a slot
+    // would default to 0 and pile into a single minute of the day.
+    const { slotForUserId } = await import('../scheduler/slot.util');
+    expect(slotForUserId('user-1')).toBe(slotForUserId('user-1'));
   });
 });

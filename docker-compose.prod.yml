@@ -44,6 +44,11 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
       REDIS_URL: redis://redis:6379
+      # Selects the API connection pool (DB_POOL_API) in PrismaService.
+      PROCESS_ROLE: api
+      # One process runs the dispatcher. When you scale API replicas past 1,
+      # set this to false here and run the `scheduler` service below instead.
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
     depends_on:
       postgres:
         condition: service_healthy
@@ -55,6 +60,41 @@ services:
       timeout: 5s
       retries: 3
     # Not published directly — Nginx is the only public entry point.
+
+  # Scheduled-update workers. A SEPARATE container from the API on purpose:
+  # its own CPU, its own Postgres pool, its own Redis connection. A 2,000-job
+  # fan-out here cannot slow down a login over there.
+  #
+  # Scale with:  docker compose -f docker-compose.prod.yml up -d --scale worker=3
+  # Every replica shares the queue's rate limiter, so total throughput stays
+  # bounded by QUEUE_RATE_LIMIT_MAX no matter how many you run.
+  worker:
+    build:
+      context: ./apps/api
+      target: production
+    restart: always
+    command: ['node', 'dist/worker.js']
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      REDIS_URL: redis://redis:6379
+      # Selects the smaller worker pool (DB_POOL_WORKER).
+      PROCESS_ROLE: worker
+      # Workers never dispatch; they only consume.
+      SCHEDULER_ENABLED: 'false'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # A worker exhausting the box would starve the API, so cap it. Tune once
+    # you have measured a real cycle.
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    # No ports. Nothing should be able to reach a worker.
 
   nginx:
     image: nginx:1.27-alpine

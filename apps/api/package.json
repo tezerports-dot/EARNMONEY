@@ -2,7 +2,7 @@
   "name": "@job-referral/api",
   "version": "0.1.0",
   "private": true,
-  "description": "Job referral platform — API service",
+  "description": "Job referral platform \u2014 API service",
   "scripts": {
     "build": "nest build",
     "start": "nest start",
@@ -16,7 +16,9 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
-    "prisma:seed": "ts-node prisma/seed.ts"
+    "prisma:seed": "ts-node prisma/seed.ts",
+    "start:worker": "node dist/worker.js",
+    "start:worker:dev": "nest start --watch --entryFile worker"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
@@ -27,13 +29,16 @@
     "@nestjs/core": "^10.4.0",
     "@nestjs/jwt": "^10.2.0",
     "@nestjs/platform-express": "^10.4.0",
+    "@nestjs/schedule": "^4.1.2",
     "@nestjs/throttler": "^6.2.1",
     "@prisma/client": "^5.20.0",
     "argon2": "^0.41.1",
+    "bullmq": "^5.81.5",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "cookie-parser": "^1.4.7",
     "helmet": "^7.1.0",
+    "ioredis": "^5.11.1",
     "libphonenumber-js": "^1.11.9",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
@@ -63,11 +68,19 @@
     "typescript": "^5.6.2"
   },
   "jest": {
-    "moduleFileExtensions": ["js", "json", "ts"],
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
     "rootDir": "src",
     "testRegex": ".*\\.spec\\.ts$",
-    "transform": { "^.+\\.(t|j)s$": "ts-jest" },
-    "collectCoverageFrom": ["**/*.(t|j)s"],
+    "transform": {
+      "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "collectCoverageFrom": [
+      "**/*.(t|j)s"
+    ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
   }

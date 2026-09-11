@@ -143,13 +143,21 @@ model User {
   // Count of referred users whose identity verification was conclusively
   // rejected (3 independent rejections). At `fraud_strike_limit` the referrer
   // is suspended. See FraudService.
-  fakeReferralCount Int        @default(0) @map("fake_referral_count")
-  role              Role       @default(CANDIDATE)
-  status            UserStatus @default(REGISTERED)
-  referralCode      String     @unique @map("referral_code")
-  referredByUserId  String?    @map("referred_by_user_id")
-  referredBy        User?      @relation("UserReferrals", fields: [referredByUserId], references: [id])
-  referredUsers     User[]     @relation("UserReferrals")
+  fakeReferralCount Int @default(0) @map("fake_referral_count")
+
+  // Which of the day's slots this account's daily update belongs to, derived
+  // deterministically from the user id at signup (see scheduler/slot.util.ts).
+  // Persisted rather than computed at query time so the dispatcher can do an
+  // index range scan instead of hashing millions of rows every minute.
+  updateSlot  Int              @default(0) @map("update_slot")
+  updateState UserUpdateState?
+
+  role             Role       @default(CANDIDATE)
+  status           UserStatus @default(REGISTERED)
+  referralCode     String     @unique @map("referral_code")
+  referredByUserId String?    @map("referred_by_user_id")
+  referredBy       User?      @relation("UserReferrals", fields: [referredByUserId], references: [id])
+  referredUsers    User[]     @relation("UserReferrals")
 
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
@@ -172,7 +180,75 @@ model User {
 
   @@index([referredByUserId])
   @@index([status])
+  // The dispatcher's hot path: "give me this slot's accounts, after this id".
+  // Composite so the keyset pagination stays on the index.
+  @@index([updateSlot, id])
   @@map("users")
+}
+
+/// The content every account receives once a day. One row per published
+/// version; workers read it from Redis, falling back to this table on a miss.
+/// Small and rarely written, so it caches almost perfectly.
+model ContentVersion {
+  id          String   @id @default(uuid())
+  /// Monotonic. `UserUpdateState.deliveredVersion` is compared against this,
+  /// which is what makes redelivery a no-op rather than a duplicate.
+  version     Int      @unique
+  title       String
+  body        String
+  linkUrl     String?  @map("link_url")
+  publishedAt DateTime @default(now()) @map("published_at")
+  isCurrent   Boolean  @default(false) @map("is_current")
+
+  @@index([isCurrent])
+  @@map("content_versions")
+}
+
+/// Per-account delivery state. The unique row per user plus the conditional
+/// update in the processor is the real idempotency guarantee — queue-level
+/// de-duplication only covers jobs still known to the queue.
+model UserUpdateState {
+  id               String    @id @default(uuid())
+  userId           String    @unique @map("user_id")
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Highest content version this account has actually received.
+  deliveredVersion Int       @default(0) @map("delivered_version")
+  deliveredAt      DateTime? @map("delivered_at")
+  /// Consecutive failures; reset on success. Surfaced in monitoring.
+  failureCount     Int       @default(0) @map("failure_count")
+  lastError        String?   @map("last_error")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@index([deliveredVersion])
+  @@map("user_update_states")
+}
+
+/// One row per (day, slot) the dispatcher has handled. Two jobs at once:
+///  - the unique constraint stops two scheduler instances dispatching the same
+///    slot concurrently,
+///  - rows left incomplete are exactly the work a restart has to replay, so
+///    recovery is a query rather than a guess.
+model ScheduleTick {
+  id            String     @id @default(uuid())
+  /// UTC date, midnight-normalised.
+  slotDate      DateTime   @map("slot_date") @db.Date
+  /// 0..(slotsPerDay-1).
+  slot          Int
+  status        TickStatus @default(IN_PROGRESS)
+  enqueuedCount Int        @default(0) @map("enqueued_count")
+  startedAt     DateTime   @default(now()) @map("started_at")
+  completedAt   DateTime?  @map("completed_at")
+  lastError     String?    @map("last_error")
+
+  @@unique([slotDate, slot])
+  @@index([status, slotDate])
+  @@map("schedule_ticks")
+}
+
+enum TickStatus {
+  IN_PROGRESS
+  COMPLETED
+  FAILED
 }
 
 model RefreshToken {

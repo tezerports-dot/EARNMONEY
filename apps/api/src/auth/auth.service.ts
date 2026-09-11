@@ -11,6 +11,8 @@ import * as argon2 from 'argon2';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { hashAadhaar, aadhaarLast4, normaliseAadhaar } from '../common/identity/aadhaar.util';
+import { slotForUserId } from '../scheduler/slot.util';
+import { QueueProducer } from '../queue/queue.producer';
 import { AuditLogService } from '../audit/audit-log.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
@@ -30,6 +32,7 @@ export class AuthService {
     private readonly config: ConfigService,
     private readonly audit: AuditLogService,
     @Inject('CaptchaService') private readonly captcha: CaptchaService,
+    private readonly queue: QueueProducer,
   ) {}
 
   async signup(dto: SignupDto, ip?: string) {
@@ -116,18 +119,33 @@ export class AuthService {
         });
       }
 
+      // The account's permanent daily-update slot. Derived from the id, so it
+      // can only be computed after the insert — and written in the same
+      // transaction so an account can never exist without one.
+      const slotsPerDay = this.config.get<number>('scheduler.slotsPerDay') ?? 1440;
+      await tx.user.update({
+        where: { id: created.id },
+        data: { updateSlot: slotForUserId(created.id, slotsPerDay) },
+      });
+
       return created;
     });
 
-    await this.audit.record({
-      actorUserId: user.id,
-      action: 'USER_SIGNUP',
-      entityType: 'User',
-      entityId: user.id,
-      // Never put the Aadhaar number (or its hash) in an audit row.
-      metadata: { hadReferralCode: !!dto.referralCode },
-      ip,
-    });
+    // Non-critical: push off the request path so signup latency is the
+    // database write and nothing else. Falls back to writing inline if the
+    // queue is unavailable — a signup must never fail because Redis is down.
+    const queued = await this.queue.enqueuePostSignup({ userId: user.id, ip });
+    if (!queued) {
+      await this.audit.record({
+        actorUserId: user.id,
+        action: 'USER_SIGNUP',
+        entityType: 'User',
+        entityId: user.id,
+        // Never put the Aadhaar number (or its hash) in an audit row.
+        metadata: { hadReferralCode: !!dto.referralCode },
+        ip,
+      });
+    }
 
     return { userId: user.id, status: user.status, referralCode: user.referralCode };
   }
