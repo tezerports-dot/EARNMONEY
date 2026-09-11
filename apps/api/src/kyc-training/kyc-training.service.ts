@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EligibilityService } from '../eligibility/eligibility.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { SubmitChallengeDto } from './dto/submit-challenge.dto';
-import { answerMatches, buildReadingChallenge } from './number-reading.util';
+import { answerMatches, formatGrouped } from './number-reading.util';
 
 const CHALLENGE_TTL_MINUTES = 15;
 
@@ -16,31 +16,61 @@ export class KycTrainingService {
   ) {}
 
   /**
-   * Issues the next challenge: a generated number and one question about it.
+   * Issues the next challenge from the admin-authored bank.
    *
-   * Nothing is stored in advance. The number is produced on the fly and the
-   * expected answer is computed from it, so the supply is unlimited, there is
-   * no answer key to maintain, and the target can be any number the admin
-   * sets.
+   * Items repeat: the one this candidate has seen least recently comes next,
+   * and one never seen comes before any that has been. That is what lets a
+   * target of 200 be met from a bank of 5 — the bank sets how much repetition
+   * candidates see, not a ceiling on the target.
    *
-   * The number is generated, never a real person's — which is both the legal
-   * position and the practical one: the grader always knows the right answer.
+   * The number, question and answer are copied onto the attempt. Grading then
+   * reads that copy, so an admin correcting an item mid-attempt cannot fail a
+   * candidate for answering what they were actually shown.
    */
   async issueNextChallenge(candidateUserId: string) {
-    const challenge = buildReadingChallenge();
+    const items = await this.prisma.numberReadingItem.findMany({
+      where: { isActive: true },
+      select: { id: true, number: true, question: true, expectedAnswer: true, answerHint: true },
+    });
+
+    if (items.length === 0) {
+      throw new BadRequestException(
+        'No practice numbers are available yet. An administrator needs to add some.',
+      );
+    }
+
+    const lastSeen = await this.prisma.challengeAttempt.groupBy({
+      by: ['itemId'],
+      where: { candidateUserId, itemId: { in: items.map((i) => i.id) } },
+      _max: { createdAt: true },
+    });
+    const seenAt = new Map(
+      lastSeen.map((row: { itemId: string | null; _max: { createdAt: Date | null } }) => [
+        row.itemId,
+        row._max.createdAt?.getTime() ?? 0,
+      ]),
+    );
+
+    // Shuffle first so that items the candidate has never seen — all tied at
+    // "never" — are not handed out in the same order to everyone.
+    const ordered = shuffle(items).sort(
+      (a, b) => (seenAt.get(a.id) ?? -1) - (seenAt.get(b.id) ?? -1),
+    );
+    const item = ordered[0];
 
     const attempt = await this.prisma.challengeAttempt.create({
       data: {
         candidateUserId,
+        itemId: item.id,
         kind: 'NUMBER_READING',
         prompt: {
-          number: challenge.number,
-          numberDisplay: challenge.numberDisplay,
-          question: challenge.question.text,
-          answerHint: challenge.question.answerHint,
+          number: item.number,
+          numberDisplay: formatGrouped(item.number),
+          question: item.question,
+          answerHint: item.answerHint,
         },
         // Server-side only; never returned before the candidate submits.
-        expectedAnswer: challenge.expectedAnswer,
+        expectedAnswer: item.expectedAnswer,
         status: 'ISSUED',
         expiresAt: new Date(Date.now() + CHALLENGE_TTL_MINUTES * 60 * 1000),
       },
@@ -48,15 +78,15 @@ export class KycTrainingService {
 
     return {
       attemptId: attempt.id,
-      numberDisplay: challenge.numberDisplay,
-      question: challenge.question.text,
-      answerHint: challenge.question.answerHint,
+      numberDisplay: formatGrouped(item.number),
+      question: item.question,
+      answerHint: item.answerHint ?? '',
       expiresAt: attempt.expiresAt,
     };
   }
 
   async submitChallenge(candidateUserId: string, attemptId: string, dto: SubmitChallengeDto) {
-    // No join: a reading challenge carries its own answer, so there is
+    // No join: the attempt carries its own copy of the answer, so there is
     // nothing to look up alongside it.
     const attempt = await this.prisma.challengeAttempt.findUnique({
       where: { id: attemptId },
@@ -78,9 +108,9 @@ export class KycTrainingService {
       throw new BadRequestException('This challenge expired. Request a new one.');
     }
 
-    // Reading challenges grade by comparing the typed answer to the one
-    // computed from the generated number. Spacing is ignored — a candidate who
-    // read the digits correctly but grouped them differently has passed.
+    // Graded against the answer the admin set, as snapshotted at issue time.
+    // Spacing is ignored — a candidate who read the digits correctly but
+    // grouped them differently has passed.
     const isCorrect = answerMatches(dto.answer, attempt.expectedAnswer ?? '');
 
     const updated = await this.prisma.challengeAttempt.update({
@@ -116,4 +146,14 @@ export class KycTrainingService {
       promotedToApplicationEligible: promoted,
     };
   }
+}
+
+/** Fisher-Yates, on a copy. */
+function shuffle<T>(input: T[]): T[] {
+  const out = [...input];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
 }

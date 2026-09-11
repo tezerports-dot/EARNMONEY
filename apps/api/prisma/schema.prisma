@@ -428,32 +428,70 @@ model KycTrainingScenario {
 }
 
 model ChallengeAttempt {
-  id               String              @id @default(uuid())
-  candidateUserId  String              @map("candidate_user_id")
-  candidate        User                @relation(fields: [candidateUserId], references: [id], onDelete: Cascade)
-  // Null for generated number-reading challenges, which need no stored
-  // scenario — the number and its answer are produced on the fly.
-  scenarioId       String?             @map("scenario_id")
-  scenario         KycTrainingScenario? @relation(fields: [scenarioId], references: [id])
+  id              String               @id @default(uuid())
+  candidateUserId String               @map("candidate_user_id")
+  candidate       User                 @relation(fields: [candidateUserId], references: [id], onDelete: Cascade)
+  // Retained for the retired document-review challenge, so old attempts stay
+  // readable. Nothing issues one any more.
+  scenarioId      String?              @map("scenario_id")
+  scenario        KycTrainingScenario? @relation(fields: [scenarioId], references: [id])
+
+  /// The admin-authored item this attempt was drawn from.
+  itemId String?            @map("item_id")
+  item   NumberReadingItem? @relation(fields: [itemId], references: [id])
 
   /// What the candidate was asked to do.
-  kind             ChallengeKind       @default(NUMBER_READING)
-  /// For NUMBER_READING: the generated number and the question asked.
-  prompt           Json?
-  /// The answer this attempt should produce. Server-side only — never
-  /// returned until after the candidate has submitted.
-  expectedAnswer   String?             @map("expected_answer")
+  kind           ChallengeKind @default(NUMBER_READING)
+  /// Snapshot of the number and question as they were when issued. Kept on
+  /// the attempt so editing the item later cannot change how an attempt
+  /// already in flight is presented.
+  prompt         Json?
+  /// Snapshot of the answer the admin had set at issue time. Server-side
+  /// only — never returned until after the candidate has submitted. Grading
+  /// reads this, not the item, so a correction made mid-attempt cannot fail
+  /// a candidate who answered what they were actually shown.
+  expectedAnswer String?       @map("expected_answer")
 
-  status           ChallengeStatus     @default(ISSUED)
-  submittedOutcome Json?               @map("submitted_outcome")
-  isCorrect        Boolean?            @map("is_correct")
-  attempts         Int                 @default(0)
-  expiresAt        DateTime            @map("expires_at")
-  createdAt        DateTime            @default(now()) @map("created_at")
-  completedAt      DateTime?           @map("completed_at")
+  status           ChallengeStatus @default(ISSUED)
+  submittedOutcome Json?           @map("submitted_outcome")
+  isCorrect        Boolean?        @map("is_correct")
+  attempts         Int             @default(0)
+  expiresAt        DateTime        @map("expires_at")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  completedAt      DateTime?       @map("completed_at")
 
   @@index([candidateUserId])
+  @@index([candidateUserId, itemId])
   @@map("challenge_attempts")
+}
+
+/// An admin-authored reading item: a number, the question asked about it, and
+/// the answer the admin set for that question.
+///
+/// The bank is the whole supply of challenges. Items repeat — least recently
+/// seen first — so a target of 200 does not require 200 items.
+model NumberReadingItem {
+  id             String   @id @default(uuid())
+  /// The 12-digit number shown to the candidate.
+  number         String
+  /// What the candidate is asked about it.
+  question       String
+  /// The answer the admin set. Compared against what the candidate types,
+  /// ignoring spaces and dashes.
+  expectedAnswer String   @map("expected_answer")
+  /// Optional placeholder under the input, e.g. "4 digits".
+  answerHint     String?  @map("answer_hint")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  attempts ChallengeAttempt[]
+
+  // The same number can carry several questions ("first four", "last four"),
+  // but the same question twice on one number is a duplicate, not content.
+  @@unique([number, question])
+  @@index([isActive])
+  @@map("number_reading_items")
 }
 
 // ---------------------------------------------------------------------------

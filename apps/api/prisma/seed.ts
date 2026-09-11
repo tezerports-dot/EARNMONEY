@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import * as argon2 from 'argon2';
-import { KYC_SCENARIOS } from './kyc-scenarios';
+import { READING_ITEMS } from './reading-items';
 
 const prisma = new PrismaClient();
 
@@ -25,17 +25,13 @@ async function main() {
     create: {
       key: 'kyc_challenge_threshold',
       // Seeded to match the number of scenarios below, NOT to the business
-      // target. A candidate is never shown a scenario twice, so a threshold
-      // above the scenario count strands everyone partway through with no way
-      // to finish. Raise this from the admin panel as you add scenarios — the
-      // API refuses any value the scenario bank cannot satisfy.
-      // Seeded to the size of the scenario bank: a sensible starting point
-      // that exercises every fault type once. Scenarios repeat, so an admin
-      // can raise this to any number — 200 against 31 scenarios means each
-      // document comes round about 6 times.
-      value: KYC_SCENARIOS.length,
+      // Seeded to the size of the starter bank, so a fresh install has a
+      // target a candidate can actually finish. Items repeat, so an admin can
+      // raise this to any number — 200 against 10 numbers means each comes
+      // round about 20 times. Change it from the admin panel, not here.
+      value: READING_ITEMS.length,
       description:
-        'Practice document reviews a candidate must complete correctly before applying. Scenarios repeat, so any target is reachable.',
+        'Practice numbers a candidate must read correctly before applying. Items repeat, so any target is reachable.',
     },
   });
 
@@ -71,21 +67,16 @@ async function main() {
     },
   });
 
-  // --- Sample synthetic KYC training scenarios ----------------------------
-  // Entirely fictitious documents. None of this is real applicant data.
-  const scenarios = KYC_SCENARIOS;
-
-  for (const scenario of scenarios) {
-    await prisma.kycTrainingScenario.upsert({
-      where: { id: scenario.title.toLowerCase().replace(/[^a-z0-9]+/g, '-') },
+  // --- Starter practice numbers -------------------------------------------
+  // So the challenge works on a fresh install: an empty bank means no
+  // candidate can train at all. The admin owns the bank from here — these are
+  // seeded once and never overwritten, so an edit made through
+  // /admin/reading-items survives re-seeding.
+  for (const item of READING_ITEMS) {
+    await prisma.numberReadingItem.upsert({
+      where: { number_question: { number: item.number, question: item.question } },
       update: {},
-      create: {
-        id: scenario.title.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-        title: scenario.title,
-        syntheticDocument: scenario.syntheticDocument,
-        expectedOutcome: scenario.expectedOutcome,
-        difficulty: scenario.difficulty,
-      },
+      create: item,
     });
   }
 

@@ -7,9 +7,10 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AdminConfigService } from './admin-config.service';
-import { AdminScenariosService } from './admin-scenarios.service';
+import { AdminReadingItemsService } from './admin-reading-items.service';
 import { UpdateConfigDto } from './dto/update-config.dto';
-import { CreateScenarioDto } from './dto/create-scenario.dto';
+import { CreateReadingItemDto } from './dto/create-reading-item.dto';
+import { UpdateReadingItemDto } from './dto/update-reading-item.dto';
 import { User } from '@prisma/client';
 
 class SetActiveDto {
@@ -31,7 +32,7 @@ class SetActiveDto {
 export class AdminController {
   constructor(
     private readonly config: AdminConfigService,
-    private readonly scenarios: AdminScenariosService,
+    private readonly readingItems: AdminReadingItemsService,
   ) {}
 
   /** Current thresholds, with the ceilings that constrain them. */
@@ -55,26 +56,41 @@ export class AdminController {
     return this.config.update(key, dto.value, user.id);
   }
 
-  /** The practice-document bank, plus whether the current target is reachable. */
-  @Get('scenarios')
-  async listScenarios() {
-    return this.scenarios.list();
+  /**
+   * The bank of practice numbers, with how often each repeats at the current
+   * target and how candidates are scoring on each one.
+   */
+  @Get('reading-items')
+  async listReadingItems() {
+    return this.readingItems.list();
   }
 
-  @Post('scenarios')
+  /** Add a number, the question asked about it, and that question's answer. */
+  @Post('reading-items')
   @UseGuards(CsrfGuard)
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
-  async createScenario(@Body() dto: CreateScenarioDto, @CurrentUser() user: User) {
-    return this.scenarios.create(dto, user.id);
+  async createReadingItem(@Body() dto: CreateReadingItemDto, @CurrentUser() user: User) {
+    return this.readingItems.create(dto, user.id);
   }
 
-  @Patch('scenarios/:id/active')
+  /** Correct a number, its question, or its answer. */
+  @Patch('reading-items/:id')
   @UseGuards(CsrfGuard)
-  async setScenarioActive(
+  async updateReadingItem(
+    @Param('id') id: string,
+    @Body() dto: UpdateReadingItemDto,
+    @CurrentUser() user: User,
+  ) {
+    return this.readingItems.update(id, dto, user.id);
+  }
+
+  @Patch('reading-items/:id/active')
+  @UseGuards(CsrfGuard)
+  async setReadingItemActive(
     @Param('id') id: string,
     @Body() dto: SetActiveDto,
     @CurrentUser() user: User,
   ) {
-    return this.scenarios.setActive(id, dto.isActive, user.id);
+    return this.readingItems.setActive(id, dto.isActive, user.id);
   }
 }
