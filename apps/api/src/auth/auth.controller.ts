@@ -38,8 +38,17 @@ export class AuthController {
   @Throttle({ default: { limit: 8, ttl: 60_000 } })
   async login(@Body() dto: LoginDto, @Ip() ip: string, @Res({ passthrough: true }) res: Response) {
     const { user, tokens } = await this.authService.login(dto, ip);
-    this.setSessionCookies(res, tokens.accessToken, tokens.refreshToken, tokens.refreshTokenExpiresAt);
-    return { user };
+    const csrfToken = this.setSessionCookies(
+      res,
+      tokens.accessToken,
+      tokens.refreshToken,
+      tokens.refreshTokenExpiresAt,
+    );
+    // Returned in the body as well as the cookie, because a native app has no
+    // document.cookie to read it from. This is not a secret from the
+    // legitimate client — a CSRF token defends against *cross-site* requests,
+    // which a native app does not make. The cookie stays for web clients.
+    return { user, csrfToken };
   }
 
   @Post('refresh')
@@ -52,8 +61,13 @@ export class AuthController {
       return { message: 'No active session.' };
     }
     const tokens = await this.authService.refresh(raw);
-    this.setSessionCookies(res, tokens.accessToken, tokens.refreshToken, tokens.refreshTokenExpiresAt);
-    return { ok: true };
+    const csrfToken = this.setSessionCookies(
+      res,
+      tokens.accessToken,
+      tokens.refreshToken,
+      tokens.refreshTokenExpiresAt,
+    );
+    return { ok: true, csrfToken };
   }
 
   @Post('logout')
@@ -73,7 +87,13 @@ export class AuthController {
 
   // -------------------------------------------------------------------
 
-  private setSessionCookies(res: Response, accessToken: string, refreshToken: string, refreshExpiresAt: Date) {
+  /** Sets the session cookies and returns the CSRF token it issued. */
+  private setSessionCookies(
+    res: Response,
+    accessToken: string,
+    refreshToken: string,
+    refreshExpiresAt: Date,
+  ): string {
     const secure = this.config.get<boolean>('cookies.secure');
     const domain = this.config.get<string>('cookies.domain');
 
@@ -95,9 +115,10 @@ export class AuthController {
       path: '/api/v1/auth',
     });
 
-    // CSRF token: intentionally NOT httpOnly, so the frontend can read it and
-    // echo it back in a header (double-submit pattern — see CsrfGuard).
-    res.cookie('csrf_token', randomBytes(24).toString('hex'), {
+    // CSRF token: intentionally NOT httpOnly, so a web frontend can read it
+    // and echo it back in a header (double-submit pattern — see CsrfGuard).
+    const csrfToken = randomBytes(24).toString('hex');
+    res.cookie('csrf_token', csrfToken, {
       httpOnly: false,
       secure,
       sameSite: 'lax',
@@ -105,6 +126,7 @@ export class AuthController {
       expires: refreshExpiresAt,
       path: '/',
     });
+    return csrfToken;
   }
 
   private clearSessionCookies(res: Response) {
