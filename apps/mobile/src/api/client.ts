@@ -213,6 +213,8 @@ export type Challenge = {
   expiresAt: string;
 };
 
+export type KycIssue = { code: string; label: string };
+
 export type ChallengeResult = {
   attemptId: string;
   correct: boolean;
@@ -277,6 +279,9 @@ export const api = {
 
   // KYC training
   nextChallenge: () => request<Challenge>('/kyc-training/next-challenge'),
+  // The fixed answer options. Served by the API so the app and the grader can
+  // never disagree about what a valid answer looks like.
+  kycIssues: () => request<{ issues: KycIssue[] }>('/kyc-training/issues'),
   submitChallenge: (attemptId: string, answer: { valid: boolean; issue?: string }) =>
     request<ChallengeResult>(`/kyc-training/attempts/${attemptId}/submit`, {
       method: 'POST',

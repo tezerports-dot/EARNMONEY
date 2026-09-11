@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
-import { api, ApiError, Challenge, ChallengeResult, ReferralSummary } from '../api/client';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { api, ApiError, Challenge, ChallengeResult, KycIssue, ReferralSummary } from '../api/client';
 import { AdBanner } from '../components/AdBanner';
 import {
   Badge, Banner, Button, Card, LoadingState, ProgressBar, Screen, SectionTitle,
@@ -23,7 +23,8 @@ export function TrainingScreen() {
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [progress, setProgress] = useState<ReferralSummary['progress'] | null>(null);
   const [result, setResult] = useState<ChallengeResult | null>(null);
-  const [issue, setIssue] = useState('');
+  const [issues, setIssues] = useState<KycIssue[]>([]);
+  const [selectedIssue, setSelectedIssue] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exhausted, setExhausted] = useState(false);
@@ -37,10 +38,20 @@ export function TrainingScreen() {
     }
   }, []);
 
+  const loadIssues = useCallback(async () => {
+    try {
+      const { issues: list } = await api.kycIssues();
+      setIssues(list);
+    } catch {
+      // The picker is the only way to answer, so a failure here is retried on
+      // the next challenge rather than silently leaving an empty list.
+    }
+  }, []);
+
   const loadChallenge = useCallback(async () => {
     setError(null);
     setResult(null);
-    setIssue('');
+    setSelectedIssue(null);
     setExhausted(false);
     try {
       setChallenge(await api.nextChallenge());
@@ -57,7 +68,8 @@ export function TrainingScreen() {
   useEffect(() => {
     void loadChallenge();
     void loadProgress();
-  }, [loadChallenge, loadProgress]);
+    void loadIssues();
+  }, [loadChallenge, loadProgress, loadIssues]);
 
   const submit = async (valid: boolean) => {
     if (!challenge) return;
@@ -66,7 +78,7 @@ export function TrainingScreen() {
     try {
       const outcome = await api.submitChallenge(challenge.attemptId, {
         valid,
-        issue: valid ? undefined : issue.trim() || undefined,
+        issue: valid ? undefined : (selectedIssue ?? undefined),
       });
       setResult(outcome);
       void loadProgress();
@@ -157,15 +169,29 @@ export function TrainingScreen() {
           </Card>
 
           <Card>
-            <Text style={styles.answerLabel}>If something is wrong, describe it</Text>
-            <TextInput
-              style={styles.issueInput}
-              value={issue}
-              onChangeText={setIssue}
-              placeholder="e.g. name mismatch, expired document"
-              placeholderTextColor={colors.textMuted}
-              multiline
-            />
+            <Text style={styles.answerLabel}>What is wrong with it?</Text>
+            <View style={styles.issueWrap}>
+              {issues.map((opt) => {
+                const active = selectedIssue === opt.code;
+                return (
+                  <Pressable
+                    key={opt.code}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: active }}
+                    onPress={() => setSelectedIssue(active ? null : opt.code)}
+                    style={[styles.issueChip, active ? styles.issueChipActive : null]}
+                  >
+                    <Text style={[styles.issueText, active ? styles.issueTextActive : null]}>
+                      {opt.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text style={styles.helpText}>
+              Pick the fault, then tap &quot;Something is wrong&quot;. If the document is fine,
+              tap &quot;Looks genuine&quot; instead.
+            </Text>
             <View style={styles.answerRow}>
               <Button
                 label="Looks genuine"
@@ -178,6 +204,9 @@ export function TrainingScreen() {
                 label="Something is wrong"
                 onPress={() => submit(false)}
                 loading={busy}
+                // Cannot report a fault without naming it — the grader needs a
+                // code, and a blank answer would always be marked wrong.
+                disabled={!selectedIssue}
                 style={styles.answerButton}
               />
             </View>
@@ -217,16 +246,16 @@ const styles = StyleSheet.create({
   helpText: { ...typography.caption, color: colors.textSecondary },
 
   answerLabel: { ...typography.label, color: colors.textSecondary },
-  issueInput: {
-    minHeight: 72,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    textAlignVertical: 'top',
-    color: colors.textPrimary,
-    ...typography.body,
+  issueWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  issueChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceAlt,
   },
+  issueChipActive: { backgroundColor: colors.brandNavy },
+  issueText: { ...typography.caption, color: colors.textSecondary, fontWeight: '600' },
+  issueTextActive: { color: colors.textOnBrand },
   answerRow: { flexDirection: 'row', gap: spacing.md },
   answerButton: { flex: 1 },
 });

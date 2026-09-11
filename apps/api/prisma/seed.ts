@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import * as argon2 from 'argon2';
+import { KYC_SCENARIOS } from './kyc-scenarios';
 
 const prisma = new PrismaClient();
 
@@ -28,9 +29,13 @@ async function main() {
       // above the scenario count strands everyone partway through with no way
       // to finish. Raise this from the admin panel as you add scenarios — the
       // API refuses any value the scenario bank cannot satisfy.
-      value: 5,
+      // Seeded to the size of the scenario bank: a sensible starting point
+      // that exercises every fault type once. Scenarios repeat, so an admin
+      // can raise this to any number — 200 against 31 scenarios means each
+      // document comes round about 6 times.
+      value: KYC_SCENARIOS.length,
       description:
-        'Distinct KYC training scenarios a candidate must pass before applying. Capped by the number of active scenarios.',
+        'Practice document reviews a candidate must complete correctly before applying. Scenarios repeat, so any target is reachable.',
     },
   });
 
@@ -68,73 +73,7 @@ async function main() {
 
   // --- Sample synthetic KYC training scenarios ----------------------------
   // Entirely fictitious documents. None of this is real applicant data.
-  const scenarios = [
-    {
-      title: 'Name mismatch between ID and application form',
-      syntheticDocument: {
-        idType: 'sample_id_card',
-        idName: 'Rahul K. Sharma',
-        formName: 'Rahul Sharma',
-        dob: '1998-04-12',
-        idNumber: 'SAMPLE-0001-XXXX',
-        photoDescription: 'Placeholder illustration, not a real photo',
-      },
-      expectedOutcome: { valid: false, issue: 'name_mismatch' },
-      difficulty: 'standard',
-    },
-    {
-      title: 'Expired sample document',
-      syntheticDocument: {
-        idType: 'sample_id_card',
-        idName: 'Priya Verma',
-        formName: 'Priya Verma',
-        issueDate: '2015-01-01',
-        expiryDate: '2020-01-01',
-        idNumber: 'SAMPLE-0002-XXXX',
-      },
-      expectedOutcome: { valid: false, issue: 'expired' },
-      difficulty: 'standard',
-    },
-    {
-      title: 'Valid, consistent sample document',
-      syntheticDocument: {
-        idType: 'sample_id_card',
-        idName: 'Anil Kumar Yadav',
-        formName: 'Anil Kumar Yadav',
-        dob: '2000-09-30',
-        issueDate: '2022-01-01',
-        expiryDate: '2032-01-01',
-        idNumber: 'SAMPLE-0003-XXXX',
-      },
-      expectedOutcome: { valid: true },
-      difficulty: 'standard',
-    },
-    {
-      title: 'Photo/DOB inconsistency (age mismatch)',
-      syntheticDocument: {
-        idType: 'sample_id_card',
-        idName: 'Sunita Devi',
-        formName: 'Sunita Devi',
-        dob: '1975-03-11',
-        photoDescription: 'Placeholder illustration described as appearing under 18',
-        idNumber: 'SAMPLE-0004-XXXX',
-      },
-      expectedOutcome: { valid: false, issue: 'age_inconsistency' },
-      difficulty: 'harder',
-    },
-    {
-      title: 'Tampered-looking sample document number',
-      syntheticDocument: {
-        idType: 'sample_id_card',
-        idName: 'Deepak Choudhary',
-        formName: 'Deepak Choudhary',
-        idNumber: 'SAMPLE-00X5-####',
-        notes: 'ID number contains non-standard characters for this document type',
-      },
-      expectedOutcome: { valid: false, issue: 'suspected_tampering' },
-      difficulty: 'harder',
-    },
-  ];
+  const scenarios = KYC_SCENARIOS;
 
   for (const scenario of scenarios) {
     await prisma.kycTrainingScenario.upsert({

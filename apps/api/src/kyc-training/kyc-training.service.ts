@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EligibilityService } from '../eligibility/eligibility.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { SubmitChallengeDto } from './dto/submit-challenge.dto';
+import { KYC_ISSUES, normaliseIssue } from './kyc-issues';
 
 const CHALLENGE_TTL_MINUTES = 15;
 
@@ -78,6 +79,11 @@ export class KycTrainingService {
     };
   }
 
+  /** The fixed list of faults the app offers as answers. */
+  listIssues() {
+    return { issues: KYC_ISSUES };
+  }
+
   async submitChallenge(candidateUserId: string, attemptId: string, dto: SubmitChallengeDto) {
     const attempt = await this.prisma.challengeAttempt.findUnique({
       where: { id: attemptId },
@@ -101,8 +107,14 @@ export class KycTrainingService {
     }
 
     const expected = attempt.scenario.expectedOutcome as { valid: boolean; issue?: string };
+
+    // Compare canonical codes, not raw strings. The previous `===` marked a
+    // candidate wrong for typing "name mismatch" instead of "name_mismatch",
+    // which tested spelling rather than whether they spotted the fault.
+    const answeredIssue = normaliseIssue(dto.issue);
+    const expectedIssue = normaliseIssue(expected.issue);
     const isCorrect =
-      dto.valid === expected.valid && (expected.valid ? true : dto.issue === expected.issue);
+      dto.valid === expected.valid && (expected.valid ? true : answeredIssue === expectedIssue);
 
     const updated = await this.prisma.challengeAttempt.update({
       where: { id: attempt.id },

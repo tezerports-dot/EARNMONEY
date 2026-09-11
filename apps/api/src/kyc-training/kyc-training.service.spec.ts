@@ -134,6 +134,24 @@ describe('KycTrainingService', () => {
       expect(eligibility.checkAndPromote).toHaveBeenCalledWith('u1');
     });
 
+    it('accepts the fault typed as prose, not just as a code', async () => {
+      // Previously "name mismatch" failed against a stored "name_mismatch",
+      // so the test measured spelling rather than whether the candidate
+      // spotted the fault.
+      prisma.challengeAttempt.findUnique.mockResolvedValueOnce(baseAttempt);
+      prisma.challengeAttempt.update.mockImplementation(async ({ data }: any) => ({
+        id: 'attempt-1',
+        ...data,
+      }));
+
+      const result = await service.submitChallenge('u1', 'attempt-1', {
+        valid: false,
+        issue: 'Name mismatch',
+      });
+
+      expect(result.correct).toBe(true);
+    });
+
     it('marks incorrect when the issue does not match, even if valid=false matches', async () => {
       prisma.challengeAttempt.findUnique.mockResolvedValueOnce(baseAttempt);
       prisma.challengeAttempt.update.mockResolvedValueOnce({ id: 'attempt-1' });
