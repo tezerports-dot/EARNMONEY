@@ -6,12 +6,19 @@
     "orientation": "portrait",
     "scheme": "bbazaar",
     "userInterfaceStyle": "automatic",
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "android": {
       "package": "com.bbazaar.candidate",
       "versionCode": 1,
-      "adaptiveIcon": { "backgroundColor": "#0B1F3A" },
-      "permissions": ["android.permission.INTERNET", "com.google.android.gms.permission.AD_ID"]
+      "adaptiveIcon": {
+        "backgroundColor": "#0B1F3A"
+      },
+      "permissions": [
+        "android.permission.INTERNET",
+        "com.google.android.gms.permission.AD_ID"
+      ]
     },
     "plugins": [
       [
@@ -23,7 +30,13 @@
     ],
     "extra": {
       "apiBaseUrl": "https://api.bbazaar.example/api/v1",
-      "eas": { "projectId": "REPLACE_WITH_YOUR_EAS_PROJECT_ID" }
+      "eas": {
+        "projectId": "REPLACE_WITH_YOUR_EAS_PROJECT_ID"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
     }
   }
 }

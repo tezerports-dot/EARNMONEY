@@ -7,3 +7,10 @@ coverage/
 .DS_Store
 npm-debug.log*
 .vscode/
+
+# Expo
+.expo/
+# Generated native projects — this is a managed workflow; `expo prebuild`
+# regenerates these from app.json, so committing them only creates drift.
+apps/mobile/android/
+apps/mobile/ios/

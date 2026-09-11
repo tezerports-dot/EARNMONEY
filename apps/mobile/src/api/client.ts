@@ -1,5 +1,5 @@
 import Constants from 'expo-constants';
-import * as SecureStore from 'expo-secure-store';
+import { secureStorage } from './secure-storage';
 
 /**
  * Single place every network call goes through.
@@ -10,7 +10,17 @@ import * as SecureStore from 'expo-secure-store';
  * what to *draw*. Treat every field returned here as display data.
  */
 
+/**
+ * Where the API lives.
+ *
+ * `EXPO_PUBLIC_API_BASE_URL` wins so one checkout can be built for dev,
+ * staging and production without editing app.json — Expo inlines any
+ * `EXPO_PUBLIC_*` variable at build time, and the web and Android builds read
+ * the same one. Falls back to app.json, then to the Android emulator's alias
+ * for the host machine.
+ */
 const API_BASE_URL: string =
+  process.env.EXPO_PUBLIC_API_BASE_URL ??
   (Constants.expoConfig?.extra as { apiBaseUrl?: string } | undefined)?.apiBaseUrl ??
   'http://10.0.2.2:3001/api/v1';
 
@@ -38,21 +48,11 @@ export class ApiError extends Error {
 }
 
 async function getCsrfToken(): Promise<string | null> {
-  try {
-    return await SecureStore.getItemAsync(CSRF_KEY);
-  } catch {
-    return null;
-  }
+  return secureStorage.get(CSRF_KEY);
 }
 
 async function setCsrfToken(token: string | null): Promise<void> {
-  try {
-    if (token) await SecureStore.setItemAsync(CSRF_KEY, token);
-    else await SecureStore.deleteItemAsync(CSRF_KEY);
-  } catch {
-    // A device with no keystore still works; the next state-changing call
-    // simply re-authenticates.
-  }
+  return secureStorage.set(CSRF_KEY, token);
 }
 
 type RequestOptions = {

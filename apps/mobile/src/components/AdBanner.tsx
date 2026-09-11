@@ -4,7 +4,7 @@ import { BannerAd, BannerAdSize, TestIds } from 'react-native-google-mobile-ads'
 import { spacing } from '../theme/tokens';
 
 /**
- * AdMob banner.
+ * AdMob banner (native builds only — see AdBanner.web.tsx for the web build).
  *
  * `TestIds.ADAPTIVE_BANNER` is used in development builds. Serving real ads
  * from a debug build is what gets AdMob accounts suspended, so the unit id is

@@ -127,8 +127,8 @@ const HOW_TO_APPLY = [
     body: 'Share your referral link. A referral counts once that person completes their own verification.',
   },
   {
-    title: 'Complete KYC training',
-    body: 'Work through practice documents and spot the problems in them. All practice documents are fictitious.',
+    title: 'Complete number-reading training',
+    body: 'Read a 12-digit number, answer a question about it, and get the result straight away. All practice numbers are made up — none belongs to a real person.',
   },
   {
     title: 'Apply and join the group',

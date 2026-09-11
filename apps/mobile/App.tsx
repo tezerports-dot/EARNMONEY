@@ -3,7 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as Linking from 'expo-linking';
 import { StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import mobileAds from 'react-native-google-mobile-ads';
+import { initialiseAds } from './src/ads/init';
 import { api, ApiError, Me } from './src/api/client';
 import { BrandHeader, NavItem, NavKey } from './src/components/BrandHeader';
 import { LoadingState } from './src/components/ui';
@@ -46,7 +46,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    void mobileAds().initialize();
+    initialiseAds();
   }, []);
 
   const refreshSession = useCallback(async () => {
@@ -92,7 +92,7 @@ export default function App() {
     { key: 'Home', label: 'Home', caption: 'Vacancies & how to apply' },
     { key: 'Apply', label: 'Apply', caption: eligible ? 'Your application' : 'Unlocks at both targets', locked: !eligible },
     { key: 'Referrals', label: 'Referrals', caption: 'Your link and progress', locked: !verified },
-    { key: 'Training', label: 'KYC Training', caption: 'Practice documents', locked: !verified },
+    { key: 'Training', label: 'KYC Training', caption: 'Practice numbers', locked: !verified },
     { key: 'Selected', label: 'Selected', caption: eligible ? 'Group invite ready' : 'Unlocks when selected', locked: !eligible },
     {
       key: 'Account',

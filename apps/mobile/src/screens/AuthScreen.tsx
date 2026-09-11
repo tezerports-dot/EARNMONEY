@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { api, ApiError } from '../api/client';
+import { describeMobile, normaliseMobile } from '../api/mobile-number';
 import { Banner, Button, Card, Field, Screen, SectionTitle } from '../components/ui';
 import { brand, colors, spacing, typography } from '../theme/tokens';
 
@@ -44,8 +45,9 @@ export function AuthScreen({
     reset();
     const digits = aadhaar.replace(/\D/g, '');
     if (digits.length !== 12) return setError('Enter the full 12-digit Aadhaar number.');
-    if (!/^\+?[1-9]\d{9,14}$/.test(mobile.replace(/\s/g, '')))
-      return setError('Enter the mobile number linked to that Aadhaar, including country code.');
+    const e164 = normaliseMobile(mobile);
+    if (!e164)
+      return setError('Enter the 10-digit mobile number linked to that Aadhaar.');
     if (password !== confirmPassword) return setError('The two passwords do not match.');
     if (password.length < 10) return setError('Password must be at least 10 characters.');
     if (!consent) return setError('Please accept the privacy notice to continue.');
@@ -54,7 +56,7 @@ export function AuthScreen({
     try {
       const result = await api.signup({
         aadhaarNumber: digits,
-        mobile: mobile.startsWith('+') ? mobile : `+${mobile.replace(/\D/g, '')}`,
+        mobile: e164,
         password,
         confirmPassword,
         referralCode: referralCode.trim() || undefined,
@@ -77,8 +79,13 @@ export function AuthScreen({
     reset();
     setBusy(true);
     try {
+      const e164 = normaliseMobile(mobile);
+      if (!e164) {
+        setError('Enter the 10-digit mobile number for your account.');
+        return;
+      }
       await api.login({
-        mobile: mobile.startsWith('+') ? mobile : `+${mobile.replace(/\D/g, '')}`,
+        mobile: e164,
         password,
         captchaToken: 'app',
       });
@@ -145,9 +152,19 @@ export function AuthScreen({
           label="Mobile number"
           value={mobile}
           onChangeText={setMobile}
-          placeholder="+91 98765 43210"
+          placeholder="98765 43210"
           keyboardType="phone-pad"
-          hint={mode === 'signup' ? 'Must be the number linked to your Aadhaar.' : undefined}
+          maxLength={18}
+          // Echoing the number back in full is not decoration: this is the
+          // number Telegram verification will be matched against, and a
+          // candidate who signs up on the wrong one can never verify.
+          hint={
+            describeMobile(mobile)
+              ? `We will use ${describeMobile(mobile)}`
+              : mode === 'signup'
+                ? 'Your 10-digit number, the one linked to your Aadhaar.'
+                : 'Your 10-digit mobile number.'
+          }
         />
 
         <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry />
