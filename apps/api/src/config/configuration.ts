@@ -91,6 +91,9 @@ export default () => ({
   },
 
   identityProvider: {
+    // Setting this selects the real HTTP adapter over the mock. Production
+    // refuses to boot without it — see identity.module.ts.
+    baseUrl: process.env.IDENTITY_PROVIDER_BASE_URL,
     apiKey: process.env.IDENTITY_PROVIDER_API_KEY,
     webhookSecret: process.env.IDENTITY_PROVIDER_WEBHOOK_SECRET,
   },

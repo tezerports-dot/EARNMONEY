@@ -32,18 +32,19 @@ export class EligibilityService {
       this.systemConfig.getKycChallengeThreshold(),
     ]);
 
-    const [creditedReferralCount, passedChallenges] = await Promise.all([
+    const [creditedReferralCount, passedChallengeCount] = await Promise.all([
       this.prisma.referralCredit.count({ where: { referrerUserId: userId } }),
-      this.prisma.challengeAttempt.findMany({
+      // TOTAL passes, not distinct scenarios. Scenarios repeat, so the target
+      // is reachable at any value regardless of how large the scenario bank
+      // is — an admin can set 5 or 200 and candidates complete that many
+      // reviews either way.
+      this.prisma.challengeAttempt.count({
         where: { candidateUserId: userId, status: 'PASSED' },
-        select: { scenarioId: true },
-        distinct: ['scenarioId'],
       }),
     ]);
 
-    const distinctPassedCount = passedChallenges.length;
     const meetsReferralBar = creditedReferralCount >= referralThreshold;
-    const meetsChallengeBar = distinctPassedCount >= challengeThreshold;
+    const meetsChallengeBar = passedChallengeCount >= challengeThreshold;
 
     if (!meetsReferralBar || !meetsChallengeBar) {
       // Not there yet — move to REFERRAL_IN_PROGRESS so the candidate's UI
@@ -69,7 +70,7 @@ export class EligibilityService {
       entityId: userId,
       metadata: {
         creditedReferralCount,
-        distinctPassedCount,
+        passedChallengeCount,
         referralThreshold,
         challengeThreshold,
       },
@@ -86,18 +87,16 @@ export class EligibilityService {
       this.systemConfig.getKycChallengeThreshold(),
     ]);
 
-    const [creditedReferralCount, passedChallenges] = await Promise.all([
+    const [creditedReferralCount, passedChallengeCount] = await Promise.all([
       this.prisma.referralCredit.count({ where: { referrerUserId: userId } }),
-      this.prisma.challengeAttempt.findMany({
+      this.prisma.challengeAttempt.count({
         where: { candidateUserId: userId, status: 'PASSED' },
-        select: { scenarioId: true },
-        distinct: ['scenarioId'],
       }),
     ]);
 
     return {
       referrals: { completed: creditedReferralCount, required: referralThreshold },
-      kycChallenges: { completed: passedChallenges.length, required: challengeThreshold },
+      kycChallenges: { completed: passedChallengeCount, required: challengeThreshold },
     };
   }
 }

@@ -15,31 +15,49 @@ export class KycTrainingService {
   ) {}
 
   /**
-   * Issues the next challenge for a candidate: a random active scenario they
-   * have not already passed. Scenarios they previously failed can recur, so
-   * they can learn from the correction and retry — this is a training tool,
-   * not a one-shot gate.
+   * Issues the next challenge.
+   *
+   * Scenarios REPEAT. An earlier version excluded any scenario the candidate
+   * had already passed, which meant a target above the size of the scenario
+   * bank could never be met — a candidate simply ran out of material partway
+   * and was stuck forever. Now the target is whatever the admin sets: 5 or
+   * 200, candidates complete that many reviews either way.
+   *
+   * Selection is least-recently-seen rather than uniformly random, so a small
+   * bank cycles instead of showing the same document twice in a row. Ties
+   * (including scenarios never seen) are broken randomly.
    */
   async issueNextChallenge(candidateUserId: string) {
-    const passedScenarioIds = (
-      await this.prisma.challengeAttempt.findMany({
-        where: { candidateUserId, status: 'PASSED' },
-        select: { scenarioId: true },
-        distinct: ['scenarioId'],
-      })
-    ).map((a: { scenarioId: string }) => a.scenarioId);
-
-    const candidates = await this.prisma.kycTrainingScenario.findMany({
-      where: { isActive: true, id: { notIn: passedScenarioIds } },
+    const active = await this.prisma.kycTrainingScenario.findMany({
+      where: { isActive: true },
+      select: { id: true, title: true, syntheticDocument: true },
     });
 
-    if (candidates.length === 0) {
+    if (active.length === 0) {
+      // Only reachable when an admin has retired every scenario.
       throw new BadRequestException(
-        'No further KYC training scenarios available — you may have completed them all.',
+        'No KYC training scenarios are available right now. Please try again later.',
       );
     }
 
-    const scenario = candidates[Math.floor(Math.random() * candidates.length)];
+    // When this candidate last saw each scenario. Indexed on candidateUserId,
+    // and bounded by the size of the scenario bank rather than by attempts.
+    const lastSeen = await this.prisma.challengeAttempt.groupBy({
+      by: ['scenarioId'],
+      where: { candidateUserId },
+      _max: { createdAt: true },
+    });
+    const lastSeenAt = new Map(
+      lastSeen.map((r: { scenarioId: string; _max: { createdAt: Date | null } }) => [
+        r.scenarioId,
+        r._max.createdAt?.getTime() ?? 0,
+      ]),
+    );
+
+    // Oldest first; never-seen scenarios sort to the front with 0.
+    const oldest = Math.min(...active.map((sc) => lastSeenAt.get(sc.id) ?? 0));
+    const leastRecent = active.filter((sc) => (lastSeenAt.get(sc.id) ?? 0) === oldest);
+    const scenario = leastRecent[Math.floor(Math.random() * leastRecent.length)];
 
     const attempt = await this.prisma.challengeAttempt.create({
       data: {

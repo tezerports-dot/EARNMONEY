@@ -13,7 +13,7 @@ describe('EligibilityService', () => {
     prisma = {
       user: { findUnique: jest.fn(), update: jest.fn() },
       referralCredit: { count: jest.fn() },
-      challengeAttempt: { findMany: jest.fn() },
+      challengeAttempt: { findMany: jest.fn(), count: jest.fn() },
     };
     systemConfig = {
       getReferralThreshold: jest.fn().mockResolvedValue(3),
@@ -42,7 +42,7 @@ describe('EligibilityService', () => {
   it('does not promote when only the referral bar is met', async () => {
     prisma.user.findUnique.mockResolvedValueOnce({ id: 'u1', status: 'REFERRAL_IN_PROGRESS' });
     prisma.referralCredit.count.mockResolvedValueOnce(3);
-    prisma.challengeAttempt.findMany.mockResolvedValueOnce([{ scenarioId: 'a' }]); // only 1 of 3
+    prisma.challengeAttempt.count.mockResolvedValueOnce(1); // only 1 of 3
 
     const result = await service.checkAndPromote('u1');
 
@@ -53,7 +53,7 @@ describe('EligibilityService', () => {
   it('does not promote when only the KYC-challenge bar is met', async () => {
     prisma.user.findUnique.mockResolvedValueOnce({ id: 'u1', status: 'REFERRAL_IN_PROGRESS' });
     prisma.referralCredit.count.mockResolvedValueOnce(1); // only 1 of 3
-    prisma.challengeAttempt.findMany.mockResolvedValueOnce([{ scenarioId: 'a' }, { scenarioId: 'b' }, { scenarioId: 'c' }]);
+    prisma.challengeAttempt.count.mockResolvedValueOnce(3);
 
     const result = await service.checkAndPromote('u1');
 
@@ -64,7 +64,7 @@ describe('EligibilityService', () => {
   it('promotes to APPLICATION_ELIGIBLE when both bars are met', async () => {
     prisma.user.findUnique.mockResolvedValueOnce({ id: 'u1', status: 'REFERRAL_IN_PROGRESS' });
     prisma.referralCredit.count.mockResolvedValueOnce(3);
-    prisma.challengeAttempt.findMany.mockResolvedValueOnce([{ scenarioId: 'a' }, { scenarioId: 'b' }, { scenarioId: 'c' }]);
+    prisma.challengeAttempt.count.mockResolvedValueOnce(3);
 
     const result = await service.checkAndPromote('u1');
 
@@ -78,7 +78,7 @@ describe('EligibilityService', () => {
   it('moves a freshly-ACTIVE user to REFERRAL_IN_PROGRESS when neither bar is met yet', async () => {
     prisma.user.findUnique.mockResolvedValueOnce({ id: 'u1', status: 'ACTIVE' });
     prisma.referralCredit.count.mockResolvedValueOnce(0);
-    prisma.challengeAttempt.findMany.mockResolvedValueOnce([]);
+    prisma.challengeAttempt.count.mockResolvedValueOnce(0);
 
     await service.checkAndPromote('u1');
 
@@ -93,7 +93,7 @@ describe('EligibilityService', () => {
     systemConfig.getKycChallengeThreshold.mockResolvedValueOnce(1);
     prisma.user.findUnique.mockResolvedValueOnce({ id: 'u1', status: 'ACTIVE' });
     prisma.referralCredit.count.mockResolvedValueOnce(1);
-    prisma.challengeAttempt.findMany.mockResolvedValueOnce([{ scenarioId: 'a' }]);
+    prisma.challengeAttempt.count.mockResolvedValueOnce(1);
 
     const result = await service.checkAndPromote('u1');
 

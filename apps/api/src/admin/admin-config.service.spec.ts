@@ -1,5 +1,5 @@
 import { Test } from '@nestjs/testing';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import { AdminConfigService } from './admin-config.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../audit/audit-log.service';
@@ -31,37 +31,8 @@ describe('AdminConfigService', () => {
     service = moduleRef.get(AdminConfigService);
   });
 
-  describe('the unreachable-target guard', () => {
-    it('refuses a KYC target higher than the number of active scenarios', async () => {
-      // This is the exact bug that shipped: target 200, 5 scenarios, and every
-      // candidate dead-ends at the sixth challenge forever.
-      prisma.kycTrainingScenario.count.mockResolvedValue(5);
-
-      await expect(service.update('kyc_challenge_threshold', 200, 'admin-1')).rejects.toBeInstanceOf(
-        BadRequestException,
-      );
-      expect(systemConfig.set).not.toHaveBeenCalled();
-    });
-
-    it('explains why, and names the value that would work', async () => {
-      prisma.kycTrainingScenario.count.mockResolvedValue(5);
-
-      await expect(
-        service.update('kyc_challenge_threshold', 200, 'admin-1'),
-      ).rejects.toThrow(/only 5 active scenario/);
-      await expect(
-        service.update('kyc_challenge_threshold', 200, 'admin-1'),
-      ).rejects.toThrow(/5 or fewer/);
-    });
-
-    it('allows a target equal to the scenario count', async () => {
-      prisma.kycTrainingScenario.count.mockResolvedValue(5);
-      await expect(service.update('kyc_challenge_threshold', 5, 'admin-1')).resolves.toMatchObject({
-        value: 5,
-      });
-    });
-
-    it('allows the small target the operator actually wants', async () => {
+  describe('any target is settable, because scenarios repeat', () => {
+    it('allows the small target an operator actually wants', async () => {
       prisma.kycTrainingScenario.count.mockResolvedValue(5);
       await expect(service.update('kyc_challenge_threshold', 2, 'admin-1')).resolves.toMatchObject({
         key: 'kyc_challenge_threshold',
@@ -70,15 +41,17 @@ describe('AdminConfigService', () => {
       expect(systemConfig.set).toHaveBeenCalledWith('kyc_challenge_threshold', 2, 'admin-1');
     });
 
-    it('allows a high target once enough scenarios exist', async () => {
-      prisma.kycTrainingScenario.count.mockResolvedValue(250);
-      await expect(service.update('kyc_challenge_threshold', 200, 'admin-1')).resolves.toMatchObject(
-        { value: 200 },
-      );
+    it('allows a target far larger than the scenario bank', async () => {
+      // The bank size no longer caps the target: issueNextChallenge cycles
+      // scenarios, so 200 reviews against 5 scenarios is 40 passes each.
+      prisma.kycTrainingScenario.count.mockResolvedValue(5);
+      await expect(
+        service.update('kyc_challenge_threshold', 200, 'admin-1'),
+      ).resolves.toMatchObject({ value: 200 });
+      expect(systemConfig.set).toHaveBeenCalledWith('kyc_challenge_threshold', 200, 'admin-1');
     });
 
-    it('does not cap the referral threshold, which has no content dependency', async () => {
-      prisma.kycTrainingScenario.count.mockResolvedValue(5);
+    it('allows the referral target, which has no content dependency', async () => {
       await expect(service.update('referral_threshold', 200, 'admin-1')).resolves.toMatchObject({
         value: 200,
       });
@@ -110,12 +83,9 @@ describe('AdminConfigService', () => {
   });
 
   describe('listSettings', () => {
-    it('reports the scenario ceiling so an admin sees the limit before hitting it', async () => {
+    it('reports how many scenarios exist, for context on repetition', async () => {
       prisma.kycTrainingScenario.count.mockResolvedValue(5);
       const result = await service.listSettings();
-
-      const kyc = result.settings.find((s) => s.key === 'kyc_challenge_threshold');
-      expect(kyc?.max).toBe(5);
       expect(result.context.activeScenarios).toBe(5);
     });
 

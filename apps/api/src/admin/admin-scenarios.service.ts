@@ -50,9 +50,10 @@ export class AdminScenariosService {
         total: scenarios.length,
         active,
         currentTarget: threshold,
-        // The headline an admin needs: can candidates actually finish?
-        targetReachable: threshold <= active,
-        headroom: active - threshold,
+        // Scenarios repeat, so the target is always reachable. What this tells
+        // an admin is how much repetition candidates will see: a target of 200
+        // against 5 scenarios means each document comes round about 40 times.
+        averageRepeatsPerScenario: active > 0 ? Math.round((threshold / active) * 10) / 10 : null,
       },
     };
   }
@@ -100,15 +101,15 @@ export class AdminScenariosService {
     const scenario = await this.prisma.kycTrainingScenario.findUnique({ where: { id } });
     if (!scenario) throw new NotFoundException('Scenario not found.');
 
-    if (!isActive) {
-      const [activeCount, threshold] = await Promise.all([
-        this.prisma.kycTrainingScenario.count({ where: { isActive: true } }),
-        this.systemConfig.getKycChallengeThreshold(),
-      ]);
-      if (scenario.isActive && activeCount - 1 < threshold) {
+    if (!isActive && scenario.isActive) {
+      // Scenarios repeat, so the bank does not have to be as large as the
+      // target — but it cannot be empty, or no challenge can be issued at all.
+      const activeCount = await this.prisma.kycTrainingScenario.count({
+        where: { isActive: true },
+      });
+      if (activeCount <= 1) {
         throw new BadRequestException(
-          `Retiring this scenario would leave ${activeCount - 1} active against a target of ${threshold}, ` +
-            `so candidates could no longer finish. Lower the target first.`,
+          'This is the last active scenario. Retiring it would leave candidates with nothing to review. Add another first.',
         );
       }
     }
