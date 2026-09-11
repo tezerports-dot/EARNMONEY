@@ -5,6 +5,7 @@ import { CacheModule } from './cache/cache.module';
 import { QueueModule } from './queue/queue.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { ContentModule } from './content/content.module';
+import { AdminModule } from './admin/admin.module';
 import { RedisThrottlerStorage } from './common/throttler/redis-throttler.storage';
 import { APP_GUARD } from '@nestjs/core';
 import configuration from './config/configuration';
@@ -57,6 +58,7 @@ import { SelectionModule } from './selection/selection.module';
     VacanciesModule,
     SelectionModule,
     ContentModule,
+    AdminModule,
     // Dispatching runs on API processes by default so a single small VPS needs
     // only two containers. Set SCHEDULER_ENABLED=false here and run a
     // dedicated dispatcher once you have more than one API replica.

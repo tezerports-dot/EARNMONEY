@@ -23,9 +23,14 @@ async function main() {
     update: {},
     create: {
       key: 'kyc_challenge_threshold',
-      value: 200,
+      // Seeded to match the number of scenarios below, NOT to the business
+      // target. A candidate is never shown a scenario twice, so a threshold
+      // above the scenario count strands everyone partway through with no way
+      // to finish. Raise this from the admin panel as you add scenarios — the
+      // API refuses any value the scenario bank cannot satisfy.
+      value: 5,
       description:
-        'Number of KYC training scenarios a candidate must pass correctly before application becomes eligible.',
+        'Distinct KYC training scenarios a candidate must pass before applying. Capped by the number of active scenarios.',
     },
   });
 

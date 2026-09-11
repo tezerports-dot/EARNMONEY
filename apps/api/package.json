@@ -18,7 +18,8 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:seed": "ts-node prisma/seed.ts",
     "start:worker": "node dist/worker.js",
-    "start:worker:dev": "nest start --watch --entryFile worker"
+    "start:worker:dev": "nest start --watch --entryFile worker",
+    "create-admin": "node dist/scripts/create-admin.js"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
