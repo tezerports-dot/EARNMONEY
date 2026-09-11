@@ -31,6 +31,39 @@ not the same event loop.
 
 ---
 
+## 0b. Measured capacity (not estimated)
+
+Everything below was measured on a **4 vCPU / 15 GB** machine against Postgres
+16 holding **100,000 users**, through Prisma — so these include ORM and network
+overhead, not raw `pgbench` figures.
+
+| Operation | Measured | Meaning |
+| --- | --- | --- |
+| argon2id hash (signup/login) | **32.7 ms** | ~30 signups/sec **per core** |
+| Indexed user read, concurrency 10 | 5,381/sec | |
+| Indexed user read, concurrency 100 | **11,854/sec** | the shape of nearly every API request |
+| Delivery write (the scheduled update) | **5,212/sec** @ concurrency 20 | |
+| Dispatcher slot query (500 rows) | 1.13 ms | |
+
+Two conclusions follow, and they reshape the rest of this document:
+
+**1. The scheduled updates are not a capacity problem at all.** 2.9M accounts
+need 33.6 updates/sec. One machine measured 5,212/sec — **155× headroom**. The
+queue's value is not that it makes the updates affordable; they were always
+affordable. Its value is that it *bounds* them, so they cannot collide with
+user traffic, and that it keeps Redis at <1 MB instead of ~3 GB.
+
+**2. Read traffic is not a capacity problem either.** Peak interactive load at
+2.9M accounts is ~403 req/s (§1). Measured read capacity is 11,854/sec, so
+peak is **~3.4% of one machine's database capacity**.
+
+**The only genuinely expensive operation is argon2id**, at ~30/sec per core —
+and that is deliberate, since it is what makes stolen password hashes useless.
+It matters only during signup bursts, not steady state: reaching 2.9M accounts
+over two years averages 0.05 signups/sec.
+
+---
+
 ## 1. Expected requests per second
 
 **Assumptions** (change these and the table changes):
@@ -127,6 +160,13 @@ Cloudflare's plan. This one decision removes the biggest bandwidth cost.
 
 This comfortably serves **up to ~100,000 accounts**: 1.16 updates/s and ~14
 req/s peak are a small fraction of what 2 vCPU handles.
+
+**How far does one box actually go?** On the measured numbers, a single
+4 vCPU / 16 GB machine serves the full 2.9M user base: peak read load is 3.4%
+of measured capacity and the update load is 0.6%. You do not add servers at
+2.9M because you have run out of capacity — you add them because you have
+decided you no longer accept a single point of failure. Those are different
+decisions with different price tags (§12).
 
 ---
 
@@ -247,6 +287,26 @@ and never data.
 | `GET /api/v1/vacancies` | `public, s-maxage=60, stale-while-revalidate=300` | public, changes rarely |
 | Any authenticated route | `no-store` | never cache per-user data at a shared edge |
 
+**What is actually cached today — and what deliberately is not:**
+
+| Path | Cached? | Why |
+| --- | --- | --- |
+| Daily content (`content:current`) | **Yes**, 300s TTL | read by every delivery; without it 2.9M deliveries = 2.9M identical queries |
+| `GET /users/me` | No | one indexed read, measured 0.9 ms |
+| `GET /referrals/me` | No | must be live — a user who just earned a referral would see a stale count |
+| `GET /selection/status` | No | gates access; staleness here is a correctness problem |
+| `GET /telegram/state` | No | polled during verification; staleness would strand the user |
+| `GET /vacancies` | No (origin) | cached at the CDN edge instead, `s-maxage=60` |
+
+So: **no, not everything is cached, and that is deliberate.** Peak interactive
+load is ~3.4% of measured database capacity (§0b), so per-user caching would
+buy no measurable headroom while introducing the one bug class users actually
+notice — "I completed a referral and the app still shows the old number."
+
+Revisit this only if §10's Postgres-connection or p95-latency alerts fire. The
+cache that matters is already in place, and it is the one whose query count
+does not grow with the user base.
+
 **Application cache (Redis):**
 
 The highest-leverage cache is the daily content. Without it, 2.9M deliveries
@@ -335,24 +395,56 @@ constraint — so this is a degradation, not a bypass.
 
 ## 12. Estimated infrastructure cost
 
-| Stage | Accounts | Topology | Monthly |
+**These are two separate questions and conflating them inflates the number.**
+
+### 12a. What the load actually costs (capacity)
+
+Derived from the measurements in §0b, not from rules of thumb:
+
+| Stage | Accounts | What it needs | Monthly |
 | --- | --- | --- | --- |
-| **1 — Start** | 0-100k | 1 VPS (2 vCPU / 4 GB), all services, Cloudflare free | **$12-25** |
-| **2 — Growth** | 100k-1M | 1 VPS (4 vCPU / 8 GB) app + managed Postgres (2 vCPU / 4 GB) | **$50-80** |
-| **3 — Scale** | 1M-2.9M | 2-4 API + 2 workers, managed Postgres (4 vCPU / 16 GB) + managed Redis, LB | **$150-260** |
+| **1** | 0-100k | 1 VPS, 2 vCPU / 4 GB | **$12-20** |
+| **2** | 100k-1M | 1 VPS, 4 vCPU / 8 GB | **$18-25** |
+| **3** | 1M-2.9M | 1 VPS, 4 vCPU / 16 GB | **$20-30** |
 
-Notes:
-- Cloudflare's free plan covers the CDN at every stage; the ~580 GB/month of
-  static assets never reaches origin.
-- Stage 2's real driver is moving Postgres off the app server — for automated
-  backups and failover, not for CPU.
-- Stage 3 assumes peak 403 req/s. If actual DAU is below 20%, stage 2 hardware
-  reaches 2.9M accounts on its own.
+Yes — capacity cost barely moves. At 2.9M accounts peak read load is ~3.4% of
+what one machine was measured doing, and the entire daily update cycle is
+0.6%. Growing 29× in accounts does not grow the bill 29×, because the load was
+never close to the hardware's limit. RAM grows (to keep ~4.5 GB of hot data
+cached) far faster than CPU does.
 
-**Nothing above requires re-architecting.** Each stage is a configuration
-change or an added replica: pools are already explicit, rate limits are already
-shared, workers are already separate processes, and the queue is already
-bounded to one slot.
+Cloudflare's free plan covers the CDN at every stage, which is what keeps the
+~580 GB/month of static assets off the bill entirely.
+
+### 12b. What *resilience* costs (availability)
+
+This is where real money goes, and it buys uptime, not throughput:
+
+| Item | Monthly | What it buys |
+| --- | --- | --- |
+| Managed Postgres w/ failover + PITR | +$50-100 | survives a database host dying; point-in-time restore |
+| Second API server + load balancer | +$25-40 | survives an app host dying; zero-downtime deploys |
+| Managed Redis | +$15-30 | survives a Redis host dying |
+| Off-site backups | +$5 | survives losing the provider |
+
+**An earlier version of this document quoted $150-260/month for stage 3. That
+was this availability list priced as though it were capacity.** It is not.
+It is insurance, and it is optional until downtime costs you more than the
+premium.
+
+### 12c. A realistic path
+
+| When | Setup | Monthly |
+| --- | --- | --- |
+| Launch | 1 VPS, everything on it, nightly `pg_dump` to object storage | **~$15** |
+| First real users | Same box, bigger plan + off-site backups | **~$25** |
+| Revenue depends on it | Add managed Postgres — the one component whose loss you cannot undo | **~$80** |
+| Cannot tolerate downtime | Add 2nd API server + LB + managed Redis | **~$150** |
+
+The trigger for each step is a **business** decision about acceptable
+downtime, not a capacity alert. The one exception: move Postgres to managed
+hosting (or set up tested, automated, off-site backups) well before you have
+real users' data on it. Everything else is recoverable; lost user data is not.
 
 ---
 
