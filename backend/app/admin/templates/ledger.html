@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Ledger{% endblock %}
+{% block content %}
+<h1>Ledger check</h1>
+{% if total == 0 and not mismatched %}<p class="notice">The ledger balances: all accounts sum to ₹0 and every balance matches its entries.</p>
+{% else %}<p class="error">Problem found. Sum of balances: {{ total|inr }}. Accounts whose balance differs from their entries: {{ mismatched|length }}.</p>{% endif %}
+<table><tr><th>System account</th><th>Balance</th></tr>
+{% for a in system %}<tr><td>{{ a.kind }}</td><td>{{ a.balance_paise|inr }}</td></tr>{% endfor %}</table>
+{% if mismatched %}<table><tr><th>Account</th><th>Kind</th><th>Balance</th><th>Entries</th></tr>
+{% for m in mismatched %}<tr><td>{{ m.id }}</td><td>{{ m.kind }}</td><td>{{ m.balance_paise|inr }}</td><td>{{ m.entries|inr }}</td></tr>{% endfor %}</table>{% endif %}
+{% endblock %}

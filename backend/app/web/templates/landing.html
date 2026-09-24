@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>{{ company }} — Join with a referral code</title>
+  <style>
+    :root { --ink:#0B0A14; --plum:#1F1A38; --gold:#E8C07A; --gold2:#F6DDA8; --text:#F5F3FF; --muted:#BEB8D6; }
+    * { box-sizing: border-box; }
+    body { margin:0; min-height:100vh; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+           color:var(--text); background: radial-gradient(120% 80% at 50% 0%, #2A2250 0%, var(--ink) 60%); }
+    main { max-width: 440px; margin: 0 auto; padding: 48px 20px; }
+    h1 { font-family: Georgia, "Times New Roman", serif; font-size: 32px; line-height: 1.2; margin: 0 0 12px; }
+    p { color: var(--muted); line-height: 1.55; }
+    .card { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.12); border-radius: 24px; padding: 24px; margin: 24px 0; }
+    .label { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+    .code { font-size: 34px; font-weight: 800; letter-spacing: .12em; margin: 8px 0 16px; color: var(--gold2); }
+    .btn { display:block; width:100%; text-align:center; padding:16px; border-radius:16px; font-weight:700; font-size:16px;
+           text-decoration:none; border:0; cursor:pointer; margin-top:12px; }
+    .primary { background: linear-gradient(135deg, var(--gold2), var(--gold)); color: var(--ink); }
+    .ghost { background: transparent; color: var(--text); border: 1px solid rgba(255,255,255,.2); }
+    ol { color: var(--muted); padding-left: 20px; line-height: 1.7; }
+    small { color: var(--muted); display:block; margin-top: 24px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>You're invited to {{ company }}</h1>
+  <p>Install the app, sign up with this referral code, and verify with Telegram.</p>
+
+  {% if code %}
+  <div class="card">
+    <div class="label">Referral code</div>
+    <div class="code" id="code">{{ code }}</div>
+    <button class="btn ghost" id="copy" type="button">Copy code</button>
+  </div>
+  {% else %}
+  <div class="card"><p>This referral link isn't complete. Ask your friend to share it again.</p></div>
+  {% endif %}
+
+  <a class="btn primary" href="{{ download_url }}">Download the app</a>
+  {% if app_link %}<a class="btn ghost" href="{{ app_link }}">I already have the app</a>{% endif %}
+
+  <ol>
+    <li>Download and install the app.</li>
+    <li>Open it and choose <strong>Sign up</strong>.</li>
+    <li>Enter the referral code above.</li>
+  </ol>
+  <small>Rewards are paid according to the campaign rules shown in the app. Joining is free.</small>
+</main>
+{% if code %}
+<script>
+  document.getElementById('copy').addEventListener('click', async function () {
+    try { await navigator.clipboard.writeText('{{ code }}'); this.textContent = 'Copied'; }
+    catch (e) { this.textContent = 'Select the code to copy it'; }
+  });
+</script>
+{% endif %}
+</body>
+</html>

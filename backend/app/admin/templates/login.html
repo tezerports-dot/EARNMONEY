@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Sign in{% endblock %}
+{% block content %}
+<h1>Admin sign-in</h1>
+<form method="post" action="/admin/login" autocomplete="off">
+  <label for="username">Username</label><input id="username" name="username" required maxlength="64">
+  <label for="password">Password</label><input id="password" name="password" type="password" required maxlength="200">
+  <label for="code">Code from your authenticator app</label><input id="code" name="code" inputmode="numeric" required maxlength="10">
+  <p><button>Sign in</button></p>
+</form>
+{% endblock %}

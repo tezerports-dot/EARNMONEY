@@ -248,7 +248,7 @@ It returns the open session if there is one, otherwise it creates one. That make
   "deep_link": "https://t.me/futurefashion_verify_03_bot?start=vs_Ab3…",
   "expires_at": "2026-09-24T10:30:00Z",
   "channel_count": 3,
-  "failure_reason": null
+  "issue": null
 }
 ```
 
@@ -256,7 +256,18 @@ Errors: `ALREADY_VERIFIED`, `VERIFICATION_UNAVAILABLE`, `RATE_LIMITED`.
 
 ### `GET /v1/telegram/verification-session`
 
-It has the same shape. `status` is one of `OPEN`, `IN_PROGRESS`, `COMPLETED`, `EXPIRED`, `FAILED`. `failure_reason` is `null`, `PHONE_MISMATCH_LIMIT`, `TELEGRAM_ALREADY_LINKED` or `OPENED_FROM_ANOTHER_ACCOUNT`. When there's no session at all it returns `404 NOT_FOUND`. While the verification screen is visible, the app checks every 5 seconds for at most 10 minutes, and has a manual *Check again* button.
+It has the same shape. `status` is one of `OPEN`, `IN_PROGRESS`, `COMPLETED`, `EXPIRED`, `FAILED`. `deep_link` is `null` once the session is no longer open. When there's no session at all it returns `404 NOT_FOUND`.
+
+`issue` tells the app what the user should fix. It's one of these values, or `null`:
+
+| `issue` | Status | Meaning |
+|---|---|---|
+| `CHANNELS_MISSING` | `IN_PROGRESS` | A required channel has no join request yet (or the request was cancelled) |
+| `PHONE_MISMATCH` | `IN_PROGRESS` | The shared Telegram number isn't the signup number |
+| `TELEGRAM_ALREADY_LINKED` | `IN_PROGRESS` | That Telegram account already verified another account |
+| `PHONE_MISMATCH_LIMIT` | `FAILED` | Too many mismatches. The app starts a new session. |
+
+While the verification screen is visible, the app checks every 5 seconds for at most 10 minutes, and has a manual *Check again* button.
 
 ### `GET /v1/dashboard`
 

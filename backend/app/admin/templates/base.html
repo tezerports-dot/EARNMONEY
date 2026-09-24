@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>{% block title %}Admin{% endblock %} · Future Fashion</title>
+  <style>
+    :root { --ink:#0B0A14; --plum:#1F1A38; --line:#2E2850; --gold:#E8C07A; --text:#F5F3FF; --muted:#BEB8D6; --ok:#3DDC97; --warn:#F5B94C; --bad:#FF7A7A; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--ink); color: var(--text); font-size: 15px; }
+    header { display:flex; flex-wrap:wrap; gap:4px 16px; align-items:center; padding: 12px 20px; border-bottom: 1px solid var(--line); background:#100E1E; }
+    header strong { color: var(--gold); margin-right: 12px; }
+    header a { color: var(--muted); text-decoration: none; padding: 6px 0; }
+    header a:hover { color: var(--text); }
+    header form { margin-left: auto; }
+    main { padding: 24px 20px; max-width: 1100px; margin: 0 auto; }
+    h1 { font-size: 24px; margin: 0 0 16px; } h2 { font-size: 18px; margin: 28px 0 12px; }
+    .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+    .card { background: var(--plum); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
+    .card .n { font-size: 24px; font-weight: 800; margin-top: 6px; }
+    .muted { color: var(--muted); } .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+    table { width:100%; border-collapse: collapse; margin: 8px 0 16px; }
+    th, td { text-align:left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; font-size: 13px; }
+    label { display:block; margin: 12px 0 4px; color: var(--muted); font-size: 14px; }
+    input, select, textarea { width:100%; max-width: 480px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: #15122A; color: var(--text); font-size: 15px; }
+    input[type=checkbox] { width:auto; margin-right: 8px; }
+    .check { display:flex; align-items:center; color: var(--text); margin: 10px 0; }
+    button, .button { background: var(--gold); color: var(--ink); border: 0; border-radius: 10px; padding: 10px 16px; font-weight: 700; cursor: pointer; font-size: 14px; text-decoration: none; display: inline-block; }
+    button.secondary { background: transparent; color: var(--text); border: 1px solid var(--line); }
+    button.danger { background: var(--bad); }
+    .notice { background: #16301F; border: 1px solid #2F6B45; padding: 12px 14px; border-radius: 12px; margin-bottom: 16px; }
+    .error { background: #3A1820; border: 1px solid #7A2F3D; padding: 12px 14px; border-radius: 12px; margin-bottom: 16px; }
+    .inline { display:inline-flex; gap:8px; align-items:center; flex-wrap: wrap; }
+    .inline input { width: auto; }
+    .help { color: var(--muted); font-size: 13px; margin-top: 4px; max-width: 640px; }
+  </style>
+</head>
+<body>
+{% if admin %}
+<header>
+  <strong>Future Fashion admin</strong>
+  <a href="/admin">Dashboard</a>
+  <a href="/admin/campaign">Campaign</a>
+  <a href="/admin/settings">Settings</a>
+  <a href="/admin/bots">Bots</a>
+  <a href="/admin/channels">Channels</a>
+  <a href="/admin/users">Users</a>
+  <a href="/admin/withdrawals">Withdrawals</a>
+  <a href="/admin/flags">Flags</a>
+  <a href="/admin/ledger">Ledger</a>
+  <a href="/admin/audit">Audit log</a>
+  <form method="post" action="/admin/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Sign out</button></form>
+</header>
+{% endif %}
+<main>
+  {% if notice %}<div class="notice">{{ notice }}</div>{% endif %}
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

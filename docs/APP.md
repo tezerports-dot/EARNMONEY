@@ -45,15 +45,15 @@ Dark, premium, celebratory, and never casino-like. Tokens live in `mobile/lib/ap
 | `glass` | white 7% + border white 12% | Glass cards |
 | `gold` | `#E8C07A` | Primary actions, key figures |
 | `goldBright` | `#F6DDA8` | Gradients, highlights |
-| `violet` | `#7C5CFF` | Secondary accent, progress |
+| `violet` | `#7C5CFF` | Progress bars and decoration only (4.5:1, not for small text) |
 | `electric` | `#4C8DFF` | Links, info |
 | `telegram` | `#2AABEE` | Telegram steps only |
 | `success` | `#3DDC97` | Verified, paid |
 | `warning` | `#F5B94C` | Pending, processing |
 | `danger` | `#FF7A7A` | Failed, errors (soft, never alarm-red) |
-| `textPrimary` | `#F5F3FF` | 15.9:1 on `ink` |
-| `textSecondary` | `#BEB8D6` | 9.6:1 on `ink` |
-| `textMuted` | `#8E88AA` | 5.5:1 on `ink`, captions only |
+| `textPrimary` | `#F5F3FF` | 17.9:1 on `ink` |
+| `textSecondary` | `#BEB8D6` | 10.3:1 on `ink` |
+| `textMuted` | `#8E88AA` | 5.9:1 on `ink`, captions only |
 
 Status is never shown by color alone: every status chip has an icon and a word.
 

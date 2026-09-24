@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Users{% endblock %}
+{% block content %}
+<h1>Find a user</h1>
+<form method="get" action="/admin/users" class="inline">
+  <input name="q" value="{{ q }}" placeholder="Phone number or referral code" maxlength="20" required>
+  <button>Find</button>
+</form>
+{% if not_found %}<p class="muted">No user matches “{{ q }}”.</p>{% endif %}
+<p class="help">Lists of users aren't available on purpose: look people up one at a time.</p>
+{% endblock %}
