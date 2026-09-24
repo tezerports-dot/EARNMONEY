@@ -38,3 +38,6 @@ mobile/ios/.symlinks/
 
 # OS
 .DS_Store
+
+# Local Redis snapshots
+dump.rdb
