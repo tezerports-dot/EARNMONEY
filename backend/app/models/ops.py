@@ -79,7 +79,10 @@ class Job(Base):
 
 class RiskFlag(Base):
     __tablename__ = "risk_flags"
-    __table_args__ = (Index("ix_risk_flags_user", "user_id"), Index("ix_risk_flags_open", "created_at", postgresql_where=text("resolved_at IS NULL")))
+    __table_args__ = (
+        Index("ix_risk_flags_user", "user_id"),
+        Index("ix_risk_flags_open", "created_at", postgresql_where=text("resolved_at IS NULL")),
+    )
 
     id: Mapped[int] = pk()
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)

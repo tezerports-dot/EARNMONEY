@@ -101,9 +101,7 @@ async def register(db: AsyncSession, token: str, role: str, weight: int = 1) -> 
     probe = api_for(token)
     me = await probe.call("getMe")
     secret = secrets.token_urlsafe(32)
-    bot = (
-        await db.execute(select(TelegramBot).where(TelegramBot.telegram_bot_id == me["id"]))
-    ).scalar_one_or_none()
+    bot = (await db.execute(select(TelegramBot).where(TelegramBot.telegram_bot_id == me["id"]))).scalar_one_or_none()
     if bot is None:
         bot = TelegramBot(ref=secrets.token_urlsafe(12), telegram_bot_id=me["id"])
         db.add(bot)

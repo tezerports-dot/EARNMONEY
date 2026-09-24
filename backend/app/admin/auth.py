@@ -58,9 +58,7 @@ async def create_admin(db: AsyncSession, username: str, password: str) -> tuple[
 
 
 async def sign_in(db: AsyncSession, username: str, password: str, code: str) -> tuple[AdminSession, str] | None:
-    admin = (
-        await db.execute(select(AdminUser).where(AdminUser.username == username[:64]))
-    ).scalar_one_or_none()
+    admin = (await db.execute(select(AdminUser).where(AdminUser.username == username[:64]))).scalar_one_or_none()
     ok = await passwords.verify_password(admin.password_hash if admin else None, password)
     if not ok or admin is None or not admin.active:
         return None

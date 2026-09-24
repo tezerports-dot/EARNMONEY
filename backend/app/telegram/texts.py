@@ -6,8 +6,7 @@ from __future__ import annotations
 
 def start_invalid(company: str) -> str:
     return (
-        "This verification link isn't valid anymore.\n\n"
-        f"Open the {company} app and tap “Verify with Telegram” to get a new one."
+        f"This verification link isn't valid anymore.\n\nOpen the {company} app and tap “Verify with Telegram” to get a new one."
     )
 
 
@@ -30,10 +29,7 @@ def channels_missing(titles: list[str]) -> str:
 
 
 def contact_ask() -> str:
-    return (
-        "Step 2 of 2: tap “Share my phone number” below.\n\n"
-        "We only check that it matches the number you signed up with."
-    )
+    return "Step 2 of 2: tap “Share my phone number” below.\n\nWe only check that it matches the number you signed up with."
 
 
 def contact_not_own() -> str:

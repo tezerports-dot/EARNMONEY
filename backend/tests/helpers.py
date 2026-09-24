@@ -133,7 +133,12 @@ async def post_update(client: AsyncClient, bot: Bot, update: dict, secret: str |
 
 
 def message(tg_id: int, text: str | None = None, contact: dict | None = None) -> dict:
-    body: dict = {"message_id": 1, "from": {"id": tg_id, "is_bot": False, "first_name": "T"}, "chat": {"id": tg_id, "type": "private"}, "date": 0}
+    body: dict = {
+        "message_id": 1,
+        "from": {"id": tg_id, "is_bot": False, "first_name": "T"},
+        "chat": {"id": tg_id, "type": "private"},
+        "date": 0,
+    }
     if text is not None:
         body["text"] = text
     if contact is not None:
@@ -146,16 +151,20 @@ def callback(tg_id: int, data: str = "vs:check") -> dict:
 
 
 def join_request(tg_id: int, chat_id: int) -> dict:
-    return {"chat_join_request": {"chat": {"id": chat_id, "type": "channel"}, "from": {"id": tg_id, "is_bot": False, "first_name": "T"}, "date": 1790000000}}
+    return {
+        "chat_join_request": {
+            "chat": {"id": chat_id, "type": "channel"},
+            "from": {"id": tg_id, "is_bot": False, "first_name": "T"},
+            "date": 1790000000,
+        }
+    }
 
 
 def own_contact(tg_id: int, phone: str) -> dict:
     return {"phone_number": f"91{phone}", "first_name": "T", "user_id": tg_id}
 
 
-async def verify(
-    client: AsyncClient, setup: TelegramSetup, signed_up: dict, phone: str, tg_id: int | None = None
-) -> int:
+async def verify(client: AsyncClient, setup: TelegramSetup, signed_up: dict, phone: str, tg_id: int | None = None) -> int:
     """Run the whole Telegram flow for a signed-up user; returns their Telegram id."""
     tg_id = tg_id or new_telegram_id()
     session = await client.post("/v1/telegram/verification-session", headers=auth(signed_up["tokens"]))
@@ -198,6 +207,14 @@ async def fund_pool(rupees: int = 1_00_000) -> None:
 async def refresh(client: AsyncClient, body: dict) -> dict:
     """Swap in fresh tokens, as the app does after its access token expires."""
     r = await client.post("/v1/auth/refresh", json={"refresh_token": body["tokens"]["refresh_token"]})
+    assert r.status_code == 200, r.text
+    body["tokens"] = r.json()["tokens"]
+    return body
+
+
+async def login(client: AsyncClient, body: dict, password: str = "correct-horse-9") -> dict:
+    await reset_ip_limits()
+    r = await client.post("/v1/auth/login", json={"phone": body["phone"], "password": password})
     assert r.status_code == 200, r.text
     body["tokens"] = r.json()["tokens"]
     return body

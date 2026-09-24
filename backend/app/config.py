@@ -67,7 +67,7 @@ class Settings(BaseSettings):
         return value.rstrip("/")
 
     @model_validator(mode="after")
-    def _require_real_keys_outside_dev(self) -> "Settings":
+    def _require_real_keys_outside_dev(self) -> Settings:
         for name in ("data_encryption_key", "hmac_key"):
             raw = getattr(self, name)
             try:

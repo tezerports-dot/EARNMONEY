@@ -87,8 +87,6 @@ async def begin(db: AsyncSession, scope: str, key: str, payload: dict[str, Any])
 
 
 async def complete(db: AsyncSession, scope: str, key: str, status: int, body: dict[str, Any]) -> None:
-    row = (
-        await db.execute(select(IdempotencyKey).where(IdempotencyKey.scope == scope, IdempotencyKey.key == key))
-    ).scalar_one()
+    row = (await db.execute(select(IdempotencyKey).where(IdempotencyKey.scope == scope, IdempotencyKey.key == key))).scalar_one()
     row.response_status = status
     row.response_body = body

@@ -60,8 +60,11 @@ async def get_captcha(request: Request) -> JSONResponse:
 @router.get("/referral-codes/{code}")
 async def check_referral_code(code: str, request: Request, db: AsyncSession = Depends(get_db)) -> JSONResponse:
     await ratelimit.hit(ratelimit.REFERRAL_CHECK, client_ip(request))
-    async with db.begin():
-        await referrals.find_referrer(db, code[:20])
+    try:
+        async with db.begin():
+            await referrals.find_referrer(db, code[:20])
+    except errors.ReferralCodeInvalid as exc:
+        raise errors.ReferralCodeUnknown() from exc
     return ok({"valid": True})
 
 
@@ -315,4 +318,3 @@ async def create_withdrawal(
         result = await withdrawals.create(db, ctx.user, body.amount_paise)
         await idempotency.complete(db, scope, key, 201, result)
     return ok(result, 201)
-

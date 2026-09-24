@@ -90,9 +90,7 @@ async def refresh(db: AsyncSession, refresh_token: str, user_agent: str | None) 
     """
     at = timeutil.now()
     session = (
-        await db.execute(
-            select(AuthSession).where(AuthSession.refresh_token_hash == token_hash(refresh_token)).with_for_update()
-        )
+        await db.execute(select(AuthSession).where(AuthSession.refresh_token_hash == token_hash(refresh_token)).with_for_update())
     ).scalar_one_or_none()
     if session is None:
         raise errors.SessionExpired()

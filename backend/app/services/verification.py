@@ -22,7 +22,7 @@ from app.security import crypto, ratelimit
 from app.security.tokens import token_hash
 from app.services import audit, bots, campaign, referrals, rewards, risk
 
-TOKEN_PREFIX = "vs_"
+TOKEN_PREFIX = "vs_"  # noqa: S105 (a prefix, not a secret)
 
 
 def start_token(session_id: int) -> str:
@@ -40,9 +40,7 @@ def public_status(session: TelegramVerificationSession) -> str:
 
 
 async def channel_count(db: AsyncSession) -> int:
-    return (
-        await db.execute(select(func.count()).select_from(RequiredChannel).where(RequiredChannel.active))
-    ).scalar_one()
+    return (await db.execute(select(func.count()).select_from(RequiredChannel).where(RequiredChannel.active))).scalar_one()
 
 
 async def session_json(db: AsyncSession, session: TelegramVerificationSession) -> dict:
@@ -180,7 +178,5 @@ async def complete(
     await referrals.qualify(db, user)
     await rewards.credit_for_verified_user(db, user)
     await risk.after_verification(db, user)
-    await audit.record(
-        db, "telegram", "user.verified", f"user:{user.public_id}", {"channels": channel_states}
-    )
+    await audit.record(db, "telegram", "user.verified", f"user:{user.public_id}", {"channels": channel_states})
     return Outcome.VERIFIED

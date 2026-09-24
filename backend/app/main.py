@@ -11,9 +11,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, Response
+from redis.exceptions import RedisError
 from sqlalchemy.exc import DBAPIError, OperationalError
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from redis.exceptions import RedisError
 
 from app import db, errors, logging_setup, redis_client
 from app.admin import routes as admin
@@ -78,7 +78,8 @@ def create_app() -> FastAPI:
         if request.url.path.startswith("/admin"):
             response.headers["X-Frame-Options"] = "DENY"
             response.headers["Content-Security-Policy"] = (
-                "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'"
+                "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+                "form-action 'self'; frame-ancestors 'none'"
             )
         route = request.scope.get("route")
         log.info(
@@ -124,7 +125,10 @@ def create_app() -> FastAPI:
     @app.exception_handler(OperationalError)
     @app.exception_handler(RedisError)
     async def dependency_down(request: Request, exc: Exception) -> JSONResponse:
-        log.error("dependency unavailable", extra={"request_id": getattr(request.state, "request_id", None), "error": type(exc).__name__})
+        log.error(
+            "dependency unavailable",
+            extra={"request_id": getattr(request.state, "request_id", None), "error": type(exc).__name__},
+        )
         return _error_response(request, errors.ServiceUnavailable())
 
     @app.exception_handler(DBAPIError)

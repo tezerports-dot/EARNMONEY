@@ -1,8 +1,8 @@
 """Operator commands.
 
-    python -m app.cli create-admin <username>   # prints the TOTP setup link once
-    python -m app.cli worker                    # background jobs
-    python -m app.cli check-ledger              # reconciliation
+python -m app.cli create-admin <username>   # prints the TOTP setup link once
+python -m app.cli worker                    # background jobs
+python -m app.cli check-ledger              # reconciliation
 """
 
 from __future__ import annotations

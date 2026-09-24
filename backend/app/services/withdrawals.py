@@ -163,9 +163,7 @@ async def create_batch(db: AsyncSession, admin: str, limit: int = 1000) -> Payou
 
 async def _locked(db: AsyncSession, public_id: str) -> WithdrawalRequest:
     request = (
-        await db.execute(
-            select(WithdrawalRequest).where(WithdrawalRequest.public_id == public_id).with_for_update()
-        )
+        await db.execute(select(WithdrawalRequest).where(WithdrawalRequest.public_id == public_id).with_for_update())
     ).scalar_one_or_none()
     if request is None:
         raise errors.NotFound()

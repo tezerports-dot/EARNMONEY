@@ -33,6 +33,8 @@ ValidationFailed = _error(400, "VALIDATION_FAILED", "Please check the highlighte
 CaptchaRequired = _error(400, "CAPTCHA_REQUIRED", "Please solve the check to continue.")
 CaptchaInvalid = _error(400, "CAPTCHA_INVALID", "That answer didn't match. Please try a new one.")
 ReferralCodeInvalid = _error(400, "REFERRAL_CODE_INVALID", "That referral code isn't valid.")
+# The same error from GET /v1/referral-codes/{code}, where "no such code" is a 404.
+ReferralCodeUnknown = _error(404, "REFERRAL_CODE_INVALID", "That referral code isn't valid.")
 Unauthenticated = _error(401, "UNAUTHENTICATED", "Please log in again.")
 SessionExpired = _error(401, "SESSION_EXPIRED", "Your session has ended. Please log in again.")
 InvalidCredentials = _error(401, "INVALID_CREDENTIALS", "Phone number or password is incorrect.")

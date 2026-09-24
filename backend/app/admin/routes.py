@@ -138,7 +138,9 @@ async def login(
         if result is not None:
             await audit.record(db, f"admin:{username}", "admin.signed_in", ip=client_ip(request))
         else:
-            await audit.record(db, "anonymous", "admin.sign_in_failed", details={"username": username[:64]}, ip=client_ip(request))
+            await audit.record(
+                db, "anonymous", "admin.sign_in_failed", details={"username": username[:64]}, ip=client_ip(request)
+            )
     if result is None:
         return page(request, "login.html", None, error="Those details didn't work.")
     _, token = result
@@ -158,9 +160,7 @@ async def login(
 @router.post("/logout")
 async def logout(ctx: AdminContext = Depends(current_admin), db: AsyncSession = Depends(get_db)) -> Response:
     async with db.begin():
-        await db.execute(
-            update(AdminSession).where(AdminSession.id == ctx.session.id).values(revoked_at=timeutil.now())
-        )
+        await db.execute(update(AdminSession).where(AdminSession.id == ctx.session.id).values(revoked_at=timeutil.now()))
     response = RedirectResponse("/admin/login", status_code=303)
     response.delete_cookie(COOKIE, path="/admin")
     return response
@@ -179,22 +179,14 @@ async def dashboard(
         at = timeutil.now()
         pending = (
             await db.execute(
-                select(func.count())
-                .select_from(User)
-                .where(User.status == "PENDING_VERIFICATION", User.pending_expires_at > at)
+                select(func.count()).select_from(User).where(User.status == "PENDING_VERIFICATION", User.pending_expires_at > at)
             )
         ).scalar_one()
-        suspended = (
-            await db.execute(select(func.count()).select_from(User).where(User.status == "SUSPENDED"))
-        ).scalar_one()
+        suspended = (await db.execute(select(func.count()).select_from(User).where(User.status == "SUSPENDED"))).scalar_one()
         funded = await campaign.funded_total(db)
         pool = await campaign.pool_balance(db)
         by_status = dict(
-            (
-                await db.execute(
-                    select(WithdrawalRequest.status, func.count()).group_by(WithdrawalRequest.status)
-                )
-            ).all()
+            (await db.execute(select(WithdrawalRequest.status, func.count()).group_by(WithdrawalRequest.status))).all()
         )
         bot_rows = (await db.execute(select(TelegramBot).order_by(TelegramBot.role, TelegramBot.id))).scalars().all()
         open_flags = (
@@ -325,7 +317,11 @@ async def campaign_fund(
         )
         if txn is not None:
             await audit.record(
-                db, ctx.actor, "pool.funded", f"txn:{txn.public_id}", {"amount_paise": amount, "memo": memo[:200]},
+                db,
+                ctx.actor,
+                "pool.funded",
+                f"txn:{txn.public_id}",
+                {"amount_paise": amount, "memo": memo[:200]},
                 ip=client_ip(request),
             )
     return back("/campaign", "funded")
@@ -389,9 +385,7 @@ async def settings_save(
             new["verification_session_minutes"] = min(
                 1440, max(5, _int(str(form.get("verification_session_minutes", "30")), "Session minutes"))
             )
-            new["max_contact_mismatches"] = min(
-                10, max(1, _int(str(form.get("max_contact_mismatches", "3")), "Mismatch limit"))
-            )
+            new["max_contact_mismatches"] = min(10, max(1, _int(str(form.get("max_contact_mismatches", "3")), "Mismatch limit")))
             if new["min_app_version"] and not all(p.isdigit() for p in str(new["min_app_version"]).split(".")):
                 raise errors.ValidationFailed("Minimum app version looks like 1.0.0.")
         except errors.ValidationFailed as exc:
@@ -437,7 +431,11 @@ async def bots_add(
         async with db.begin():
             rows = (await db.execute(select(TelegramBot).order_by(TelegramBot.role, TelegramBot.id))).scalars().all()
             return page(
-                request, "bots.html", ctx, bots=rows, public_base_url=get_settings().public_base_url,
+                request,
+                "bots.html",
+                ctx,
+                bots=rows,
+                public_base_url=get_settings().public_base_url,
                 error=f"Telegram rejected this bot: {exc}",
             )
     return back("/bots", "bot_added")
@@ -464,8 +462,8 @@ async def channels_page(
 ) -> HTMLResponse:
     async with db.begin():
         rows = (
-            await db.execute(select(RequiredChannel).order_by(RequiredChannel.sort_order, RequiredChannel.id))
-        ).scalars().all()
+            (await db.execute(select(RequiredChannel).order_by(RequiredChannel.sort_order, RequiredChannel.id))).scalars().all()
+        )
         s = await campaign.app_settings(db)
         return page(request, "channels.html", ctx, channels=rows, accept_pending=s.accept_pending_join_requests, error=None)
 
@@ -492,7 +490,10 @@ async def channels_add(
                 raise errors.ValidationFailed("Add a watcher bot first, or paste a join-request invite link.")
             try:
                 created = await bots.call(
-                    watcher, "createChatInviteLink", chat_id=numeric_id, name="Future Fashion verification",
+                    watcher,
+                    "createChatInviteLink",
+                    chat_id=numeric_id,
+                    name="Future Fashion verification",
                     creates_join_request=True,
                 )
             except TelegramError as exc:
@@ -501,9 +502,13 @@ async def channels_add(
         if not link.startswith("https://t.me/"):
             raise errors.ValidationFailed("Invite links start with https://t.me/.")
         db.add(
-            RequiredChannel(title=title.strip(), chat_id=numeric_id, invite_link=link, sort_order=_int(sort_order or "0", "Order"))
+            RequiredChannel(
+                title=title.strip(), chat_id=numeric_id, invite_link=link, sort_order=_int(sort_order or "0", "Order")
+            )
         )
-        await audit.record(db, ctx.actor, "channel.added", f"channel:{numeric_id}", {"title": title.strip()}, ip=client_ip(request))
+        await audit.record(
+            db, ctx.actor, "channel.added", f"channel:{numeric_id}", {"title": title.strip()}, ip=client_ip(request)
+        )
     return back("/channels", "channel_added")
 
 
@@ -559,11 +564,16 @@ async def user_detail(
         w = list(
             (
                 await db.execute(
-                    select(WithdrawalRequest).where(WithdrawalRequest.user_id == user.id).order_by(WithdrawalRequest.id.desc()).limit(20)
+                    select(WithdrawalRequest)
+                    .where(WithdrawalRequest.user_id == user.id)
+                    .order_by(WithdrawalRequest.id.desc())
+                    .limit(20)
                 )
             ).scalars()
         )
-        flags = list((await db.execute(select(RiskFlag).where(RiskFlag.user_id == user.id).order_by(RiskFlag.id.desc()))).scalars())
+        flags = list(
+            (await db.execute(select(RiskFlag).where(RiskFlag.user_id == user.id).order_by(RiskFlag.id.desc()))).scalars()
+        )
         await audit.record(db, ctx.actor, "user.viewed", f"user:{user.public_id}", ip=client_ip(request))
         return page(
             request,
@@ -665,10 +675,14 @@ async def batch_export(
     download is audit-logged."""
     async with db.begin():
         rows = (
-            await db.execute(
-                select(WithdrawalRequest).where(WithdrawalRequest.batch_id == batch_id).order_by(WithdrawalRequest.id)
+            (
+                await db.execute(
+                    select(WithdrawalRequest).where(WithdrawalRequest.batch_id == batch_id).order_by(WithdrawalRequest.id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if not rows:
             raise errors.NotFound()
         await audit.record(db, ctx.actor, "payout.exported", f"batch:{batch_id}", {"count": len(rows)}, ip=client_ip(request))
@@ -782,8 +796,10 @@ async def ledger_page(
             )
         ).all()
         system = (
-            await db.execute(select(LedgerAccount).where(LedgerAccount.user_id.is_(None)).order_by(LedgerAccount.id))
-        ).scalars().all()
+            (await db.execute(select(LedgerAccount).where(LedgerAccount.user_id.is_(None)).order_by(LedgerAccount.id)))
+            .scalars()
+            .all()
+        )
         await audit.record(db, ctx.actor, "ledger.checked", details={"ok": total == 0 and not mismatched})
         return page(request, "ledger.html", ctx, total=int(total), mismatched=mismatched, system=system)
 

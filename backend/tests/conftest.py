@@ -9,9 +9,7 @@ from __future__ import annotations
 import os
 
 os.environ.setdefault("FF_ENV", "test")
-os.environ["FF_DATABASE_URL"] = os.environ.get(
-    "FF_TEST_DATABASE_URL", "postgresql+asyncpg://postgres@127.0.0.1:5432/ff_test"
-)
+os.environ["FF_DATABASE_URL"] = os.environ.get("FF_TEST_DATABASE_URL", "postgresql+asyncpg://postgres@127.0.0.1:5432/ff_test")
 os.environ["FF_REDIS_URL"] = os.environ.get("FF_TEST_REDIS_URL", "redis://127.0.0.1:6379/15")
 os.environ["FF_PUBLIC_BASE_URL"] = "https://futurefashion.test"
 os.environ["FF_ARGON2_TIME_COST"] = "1"
@@ -20,7 +18,7 @@ os.environ["FF_ARGON2_PARALLELISM"] = "1"
 os.environ["FF_LOG_LEVEL"] = "WARNING"
 
 from collections.abc import AsyncIterator  # noqa: E402
-from datetime import datetime, timezone  # noqa: E402
+from datetime import UTC, datetime  # noqa: E402
 
 import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
@@ -80,9 +78,7 @@ async def clean_state() -> AsyncIterator[None]:
     async with engine.begin() as conn:
         tables = [
             row[0]
-            for row in await conn.execute(
-                text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
-            )
+            for row in await conn.execute(text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'"))
             if row[0] not in TABLES_TO_KEEP
         ]
         await conn.execute(text(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY CASCADE"))
@@ -91,7 +87,7 @@ async def clean_state() -> AsyncIterator[None]:
     await redis().flushdb()
     deps.reset_gate_cache()
     # A fixed "now" inside the campaign, before the payout date.
-    timeutil.freeze(datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc))
+    timeutil.freeze(datetime(2026, 10, 1, 12, 0, tzinfo=UTC))
     yield
     timeutil.freeze(None)
 

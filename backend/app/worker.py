@@ -99,9 +99,7 @@ async def housekeeping() -> None:
             .values(status="EXPIRED")
         )
         await session.execute(delete(IdempotencyKey).where(IdempotencyKey.expires_at <= at))
-        await session.execute(
-            delete(Job).where(Job.status == "DONE", Job.finished_at <= at - timedelta(days=7))
-        )
+        await session.execute(delete(Job).where(Job.status == "DONE", Job.finished_at <= at - timedelta(days=7)))
         current = await campaign.current_campaign(session)
         if at >= current.payout_opens_at:
             await jobs.enqueue(session, "unlock_batch", {"after_account_id": 0}, dedupe_key=f"unlock:start:{current.id}")

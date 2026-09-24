@@ -222,7 +222,9 @@ async def test_logout(client):
     assert r.status_code == 401
     async with db.sessionmaker()() as s, s.begin():
         assert (await s.execute(select(func.count()).select_from(User))).scalar_one() == 1  # account kept
-        live = (await s.execute(select(func.count()).select_from(AuthSession).where(AuthSession.revoked_at.is_(None)))).scalar_one()
+        live = (
+            await s.execute(select(func.count()).select_from(AuthSession).where(AuthSession.revoked_at.is_(None)))
+        ).scalar_one()
     assert live == 0
 
 

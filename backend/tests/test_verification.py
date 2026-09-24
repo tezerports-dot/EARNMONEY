@@ -130,7 +130,9 @@ async def test_someone_elses_contact_is_rejected(client, telegram):
     tg = new_telegram_id()
     await post_update(client, setup.verifier, message(tg, f"/start {token}"))
     # A forwarded contact card carries another user's id (or none).
-    await post_update(client, setup.verifier, message(tg, contact={"phone_number": f"91{phone}", "first_name": "X", "user_id": tg + 1}))
+    await post_update(
+        client, setup.verifier, message(tg, contact={"phone_number": f"91{phone}", "first_name": "X", "user_id": tg + 1})
+    )
     await post_update(client, setup.verifier, message(tg, contact={"phone_number": f"91{phone}", "first_name": "X"}))
     assert (await status(client, body))["status"] == "IN_PROGRESS"
     assert "your own number" in setup.verifier.fake.sent_texts(tg)[-1]
@@ -161,7 +163,7 @@ async def test_phone_mismatch_then_limit(client, telegram):
 async def test_telegram_account_linked_to_another_user(client, telegram):
     setup = await telegram_setup(telegram, channels=0)
     first = await helpers.verified_user(client, setup)
-    tg = (await _telegram_id_of(first["user"]["public_id"]))
+    tg = await _telegram_id_of(first["user"]["public_id"])
     phone = new_phone()
     second = await signup(client, phone)
     token = await open_session(client, second)
@@ -234,7 +236,9 @@ async def test_webhook_rejects_wrong_secret(client, telegram):
     setup = await telegram_setup(telegram, channels=0)
     r = await post_update(client, setup.verifier, message(1, "/start x"), secret="not-the-secret")
     assert r.status_code == 401
-    r = await client.post("/telegram/webhook/unknown-bot", json={"update_id": 1}, headers={"X-Telegram-Bot-Api-Secret-Token": "x"})
+    r = await client.post(
+        "/telegram/webhook/unknown-bot", json={"update_id": 1}, headers={"X-Telegram-Bot-Api-Secret-Token": "x"}
+    )
     assert r.status_code == 401
     assert not setup.verifier.fake.sent_texts()
 

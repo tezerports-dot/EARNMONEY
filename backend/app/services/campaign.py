@@ -45,9 +45,7 @@ async def verified_count(db: AsyncSession) -> int:
 
 
 async def pool_balance(db: AsyncSession) -> int:
-    return (
-        await db.execute(select(LedgerAccount.balance_paise).where(LedgerAccount.kind == "PROMO_POOL"))
-    ).scalar_one()
+    return (await db.execute(select(LedgerAccount.balance_paise).where(LedgerAccount.kind == "PROMO_POOL"))).scalar_one()
 
 
 async def gates(db: AsyncSession, campaign: Campaign | None = None) -> Gates:
@@ -88,9 +86,7 @@ async def public_config(db: AsyncSession) -> dict:
     settings = await app_settings(db)
     g = await gates(db, campaign)
     at = timeutil.now()
-    maintenance_on = settings.maintenance_active and (
-        settings.maintenance_until is None or settings.maintenance_until > at
-    )
+    maintenance_on = settings.maintenance_active and (settings.maintenance_until is None or settings.maintenance_until > at)
     allocation = await funded_total(db) if campaign.show_promo_allocation else 0
     return {
         "server_now": timeutil.iso(at),

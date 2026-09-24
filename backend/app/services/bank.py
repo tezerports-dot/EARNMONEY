@@ -70,9 +70,7 @@ async def save(db: AsyncSession, user: User, name: str, number: str, ifsc: str) 
     if await active_withdrawal(db, user.id) is not None:
         raise errors.BankDetailsLocked()
     fingerprint = crypto.fingerprint(number, "bank")
-    account = (
-        await db.execute(select(BankAccount).where(BankAccount.user_id == user.id).with_for_update())
-    ).scalar_one_or_none()
+    account = (await db.execute(select(BankAccount).where(BankAccount.user_id == user.id).with_for_update())).scalar_one_or_none()
     if account is None:
         account = BankAccount(user_id=user.id)
         db.add(account)
@@ -84,7 +82,5 @@ async def save(db: AsyncSession, user: User, name: str, number: str, ifsc: str) 
     account.updated_at = timeutil.now()
     await db.flush()
     await risk.after_bank_details(db, user, fingerprint)
-    await audit.record(
-        db, f"user:{user.public_id}", "bank.saved", f"user:{user.public_id}", {"last4": number[-4:], "ifsc": ifsc}
-    )
+    await audit.record(db, f"user:{user.public_id}", "bank.saved", f"user:{user.public_id}", {"last4": number[-4:], "ifsc": ifsc})
     return await details_json(db, user)

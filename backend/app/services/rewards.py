@@ -40,9 +40,7 @@ async def credit_for_verified_user(db: AsyncSession, user: User) -> ReferralRewa
         return None
 
     # Lock the pool so the budget check and the debit can't race.
-    pool = (
-        await db.execute(select(LedgerAccount).where(LedgerAccount.kind == "PROMO_POOL").with_for_update())
-    ).scalar_one()
+    pool = (await db.execute(select(LedgerAccount).where(LedgerAccount.kind == "PROMO_POOL").with_for_update())).scalar_one()
     if pool.balance_paise < amount:
         await audit.record(db, "system", "reward.skipped", target, {"reason": "promotional_pool_empty"})
         return None

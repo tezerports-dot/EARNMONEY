@@ -37,17 +37,13 @@ async def unlock_if_open(db: AsyncSession, user: User) -> int:
         return 0
     pending = (
         await db.execute(
-            select(LedgerAccount)
-            .where(LedgerAccount.kind == "USER_PENDING", LedgerAccount.user_id == user.id)
-            .with_for_update()
+            select(LedgerAccount).where(LedgerAccount.kind == "USER_PENDING", LedgerAccount.user_id == user.id).with_for_update()
         )
     ).scalar_one_or_none()
     if pending is None or pending.balance_paise <= 0:
         return 0
     amount = pending.balance_paise
-    last_entry = (
-        await db.execute(select(func.max(LedgerEntry.id)).where(LedgerEntry.account_id == pending.id))
-    ).scalar_one()
+    last_entry = (await db.execute(select(func.max(LedgerEntry.id)).where(LedgerEntry.account_id == pending.id))).scalar_one()
     available = await ledger.user_account(db, "USER_AVAILABLE", user.id)
     await ledger.transfer(
         db,
@@ -92,9 +88,7 @@ async def entries(db: AsyncSession, user_id: int, limit: int, before_id: int | N
     reward_sources: dict[int, str] = {}
     source_ids = [txn.reference_id for _, txn, _ in rows if txn.kind == "REFERRAL_REWARD" and txn.reference_id]
     if source_ids:
-        reward_sources = dict(
-            (await db.execute(select(User.id, User.public_id).where(User.id.in_(source_ids)))).all()
-        )
+        reward_sources = dict((await db.execute(select(User.id, User.public_id).where(User.id.in_(source_ids)))).all())
 
     items: list[dict] = []
     seen: set[int] = set()
@@ -114,9 +108,7 @@ async def entries(db: AsyncSession, user_id: int, limit: int, before_id: int | N
                 "direction": "CREDIT" if entry.amount_paise > 0 else "DEBIT",
                 "amount_paise": abs(entry.amount_paise),
                 "created_at": timeutil.iso(txn.created_at),
-                "counterparty_public_id": reward_sources.get(txn.reference_id or -1)
-                if txn.kind == "REFERRAL_REWARD"
-                else None,
+                "counterparty_public_id": reward_sources.get(txn.reference_id or -1) if txn.kind == "REFERRAL_REWARD" else None,
                 "_cursor": entry.id,
             }
         )

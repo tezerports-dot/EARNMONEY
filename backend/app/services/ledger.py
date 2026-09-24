@@ -104,9 +104,7 @@ async def post(
             if "no_negative_balance" in str(exc.orig):
                 raise errors.InsufficientBalance() from exc
             raise
-    db.add_all(
-        LedgerEntry(transaction_id=txn_id, account_id=p.account_id, amount_paise=p.amount_paise) for p in postings
-    )
+    db.add_all(LedgerEntry(transaction_id=txn_id, account_id=p.account_id, amount_paise=p.amount_paise) for p in postings)
     await db.flush()
     return (await db.execute(select(LedgerTransaction).where(LedgerTransaction.id == txn_id))).scalar_one()
 

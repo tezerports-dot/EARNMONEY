@@ -115,9 +115,7 @@ async def compute_snapshot(db: AsyncSession, user_id: int) -> ReferralSnapshot:
 
 
 async def summary(db: AsyncSession, user: User) -> dict:
-    snapshot = (
-        await db.execute(select(ReferralSnapshot).where(ReferralSnapshot.user_id == user.id))
-    ).scalar_one_or_none()
+    snapshot = (await db.execute(select(ReferralSnapshot).where(ReferralSnapshot.user_id == user.id))).scalar_one_or_none()
     refresh_pending = False
     if snapshot is None:
         # First visit: small trees are cheap, so compute now.
@@ -192,9 +190,7 @@ async def direct_referrals(db: AsyncSession, user: User, limit: int, cursor: str
     )
     if cursor:
         created, row_id = _decode_cursor(cursor)
-        query = query.where(
-            or_(User.created_at < created, and_(User.created_at == created, User.id < row_id))
-        )
+        query = query.where(or_(User.created_at < created, and_(User.created_at == created, User.id < row_id)))
     rows = (await db.execute(query)).all()
     items = [
         {

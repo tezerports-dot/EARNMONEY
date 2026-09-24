@@ -74,9 +74,7 @@ async def _gate_state(db: AsyncSession) -> _GateState:
     return _gate_cache
 
 
-async def app_gate(
-    x_app_version: str | None = Header(default=None), db: AsyncSession = Depends(get_db)
-) -> None:
+async def app_gate(x_app_version: str | None = Header(default=None), db: AsyncSession = Depends(get_db)) -> None:
     """Maintenance mode and minimum app version, for every v1 route except /config."""
     state = await _gate_state(db)
     if state.maintenance:

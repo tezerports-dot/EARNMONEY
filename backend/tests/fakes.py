@@ -34,14 +34,10 @@ class FakeBot:
             return {"invite_link": f"https://t.me/+fake{params['chat_id']}", "creates_join_request": True}
         return True
 
-    owner: "FakeTelegram" = field(default=None, repr=False)  # type: ignore[assignment]
+    owner: FakeTelegram = field(default=None, repr=False)  # type: ignore[assignment]
 
     def sent_texts(self, chat_id: int | None = None) -> list[str]:
-        return [
-            p["text"]
-            for m, p in self.calls
-            if m == "sendMessage" and (chat_id is None or p["chat_id"] == chat_id)
-        ]
+        return [p["text"] for m, p in self.calls if m == "sendMessage" and (chat_id is None or p["chat_id"] == chat_id)]
 
     def last_markup(self, chat_id: int) -> dict | None:
         for method, params in reversed(self.calls):

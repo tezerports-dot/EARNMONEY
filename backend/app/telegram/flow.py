@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -83,9 +83,7 @@ async def check_channels(db: AsyncSession, telegram_user_id: int) -> tuple[list[
     channels = await _channels(db)
     requested = set(
         (
-            await db.execute(
-                select(TelegramJoinRequest.chat_id).where(TelegramJoinRequest.telegram_user_id == telegram_user_id)
-            )
+            await db.execute(select(TelegramJoinRequest.chat_id).where(TelegramJoinRequest.telegram_user_id == telegram_user_id))
         ).scalars()
     )
     watcher = await bots.watcher(db)
@@ -144,9 +142,7 @@ async def _on_start(db: AsyncSession, bot: TelegramBot, company: str, tg_id: int
     return await _next_step(db, company, session, tg_id)
 
 
-async def _next_step(
-    db: AsyncSession, company: str, session: TelegramVerificationSession, tg_id: int
-) -> list[Outgoing]:
+async def _next_step(db: AsyncSession, company: str, session: TelegramVerificationSession, tg_id: int) -> list[Outgoing]:
     channels = await _channels(db)
     if session.channels_confirmed_at is None and channels:
         return [_send(tg_id, texts.welcome(company, [c.title for c in channels]), _join_keyboard(channels))]
@@ -168,9 +164,7 @@ async def _on_check(db: AsyncSession, bot: TelegramBot, company: str, tg_id: int
     return [_send(tg_id, texts.contact_ask(), CONTACT_KEYBOARD)]
 
 
-async def _on_contact(
-    db: AsyncSession, bot: TelegramBot, company: str, tg_id: int, contact: dict
-) -> list[Outgoing]:
+async def _on_contact(db: AsyncSession, bot: TelegramBot, company: str, tg_id: int, contact: dict) -> list[Outgoing]:
     session = await _session_for(db, bot, tg_id)
     if session is None or not verification.is_open(session):
         if await _is_verified_telegram_user(db, tg_id):
@@ -266,7 +260,7 @@ async def handle_watcher(db: AsyncSession, bot: TelegramBot, update: dict) -> li
     if known is None:
         return []
     raw_date = request.get("date")
-    requested_at = datetime.fromtimestamp(raw_date, tz=timezone.utc) if isinstance(raw_date, int) else timeutil.now()
+    requested_at = datetime.fromtimestamp(raw_date, tz=UTC) if isinstance(raw_date, int) else timeutil.now()
     stmt = insert(TelegramJoinRequest).values(telegram_user_id=tg_id, chat_id=chat_id, requested_at=requested_at)
     await db.execute(
         stmt.on_conflict_do_update(

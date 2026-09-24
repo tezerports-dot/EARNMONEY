@@ -87,9 +87,7 @@ async def signup(
 
                 referrer = await referrals.find_referrer(db, data.referral_code) if payload["referral_code"] else None
 
-                existing = (
-                    await db.execute(select(User).where(User.phone == phone).with_for_update())
-                ).scalar_one_or_none()
+                existing = (await db.execute(select(User).where(User.phone == phone).with_for_update())).scalar_one_or_none()
                 if existing is not None:
                     if existing.status != "PENDING_VERIFICATION":
                         raise errors.PhoneUnavailable()
