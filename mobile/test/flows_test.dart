@@ -84,6 +84,22 @@ void main() {
     await finish(tester);
   });
 
+  testWidgets('a referral link opened after install fills in the code at signup', (tester) async {
+    final env = TestEnv();
+    env.prefs.pendingReferralCode = 'K3M9P2QA'; // stored by ReferralLinkListener when the link opened the app
+    await pumpApp(tester, env);
+    await tapText(tester, 'Create an account');
+    expect(find.text('K3M9P2QA'), findsOneWidget);
+    expect(env.api.calls, contains('referralCodeValid:K3M9P2QA')); // checked with the server, not trusted
+
+    await tester.enterText(find.widgetWithText(TextField, 'Mobile number'), '9876543210');
+    await tester.enterText(find.widgetWithText(TextField, 'Password'), 'correct-horse-9');
+    await tester.enterText(find.widgetWithText(TextField, 'Answer'), '15');
+    await tapText(tester, 'Create account');
+    expect(env.api.calls, contains('signup:9876543210:K3M9P2QA'));
+    await finish(tester);
+  });
+
   testWidgets('signup validates before calling the server', (tester) async {
     final env = TestEnv();
     await pumpApp(tester, env);
@@ -214,6 +230,26 @@ void main() {
     expect(find.text('Verification complete'), findsOneWidget);
     await tapText(tester, 'Continue');
     expect(find.textContaining('Our Big Launch.'), findsOneWidget);
+    await finish(tester);
+  });
+
+  testWidgets('ads that are unavailable leave no gap and never break a screen', (tester) async {
+    final ads = FakeAds(throwOnInterstitial: true);
+    final env = TestEnv(signedIn: true, ads: ads);
+    env.api.configResponse = configJson(adsOn: true); // the server wants ads, the SDK can't show them
+    await pumpApp(tester, env);
+    await tapText(tester, 'Referrals');
+    expect(await reveal(tester, find.text('Level 4')), findsOneWidget);
+    expect(find.text('Advertisement'), findsNothing);
+
+    await tapText(tester, 'Home');
+    await tapText(tester, 'Start Referring');
+    expect(find.text('Share App + Referral'), findsOneWidget);
+    await tester.pageBack(); // leaving Share is an ad boundary; this ad throws
+    await settle(tester);
+    expect(ads.interstitialRequests, 1);
+    expect(tester.takeException(), isNull);
+    expect(find.text('Start Referring'), findsOneWidget); // back on Home, still usable
     await finish(tester);
   });
 

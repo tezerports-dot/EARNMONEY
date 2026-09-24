@@ -13,6 +13,9 @@ import '../../core/config/config_controller.dart';
 /// banners only on non-critical screens, interstitials only at quiet
 /// navigation boundaries and never more often than the server's minimum
 /// interval, and never on signup, verification, wallet or withdrawal screens.
+///
+/// Ads are optional: implementations never throw, and an ad that can't load
+/// simply isn't shown.
 abstract interface class AdsService {
   bool get enabled;
   Future<void> initialize();
@@ -70,7 +73,7 @@ class GoogleAdsService implements AdsService {
         onAdLoaded: (ad) => _preloaded = ad,
         onAdFailedToLoad: (_) => _preloaded = null,
       ),
-    );
+    ).ignore();
   }
 
   @override
@@ -92,7 +95,11 @@ class GoogleAdsService implements AdsService {
       },
       onAdFailedToShowFullScreenContent: (ad, _) => ad.dispose(),
     );
-    await ad.show();
+    try {
+      await ad.show();
+    } on Object {
+      await ad.dispose();
+    }
   }
 }
 
@@ -126,15 +133,20 @@ class _GoogleBannerState extends State<_GoogleBanner> {
   @override
   void initState() {
     super.initState();
-    _ad = BannerAd(
+    final ad = BannerAd(
       adUnitId: AppEnv.bannerAdUnitId,
       size: AdSize.banner,
       request: const AdRequest(),
       listener: BannerAdListener(
         onAdLoaded: (_) => mounted ? setState(() => _loaded = true) : null,
-        onAdFailedToLoad: (ad, _) => ad.dispose(),
+        onAdFailedToLoad: (ad, _) {
+          ad.dispose();
+          _ad = null; // nothing to show, and nothing left to release
+        },
       ),
-    )..load();
+    );
+    _ad = ad;
+    ad.load().ignore(); // a failed load shows nothing
   }
 
   @override

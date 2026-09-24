@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:app_links/app_links.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:future_fashion/app/redirect.dart';
@@ -10,6 +13,7 @@ import 'package:future_fashion/core/deep_links/referral_links.dart';
 import 'package:future_fashion/core/formatters/dates.dart';
 import 'package:future_fashion/core/formatters/inr.dart';
 import 'package:future_fashion/core/security/idempotency.dart';
+import 'package:future_fashion/core/storage/prefs.dart';
 
 import 'support/fakes.dart';
 
@@ -69,6 +73,23 @@ void main() {
       expect(referralCodeFromUri(Uri.parse('futurefashion://r/7Q2K9MXA')), '7Q2K9MXA');
       expect(referralCodeFromUri(Uri.parse('https://dev.futurefashion.example/r/7q2k9mxa')), '7Q2K9MXA');
       expect(referralCodeFromUri(Uri.parse('https://evil.example/r/7Q2K9MXA')), isNull);
+    });
+
+    test('links that open the app are remembered for signup', () async {
+      final links = _FakeAppLinks(Uri.parse('https://dev.futurefashion.example/r/7q2k9mxa'));
+      final prefs = MemoryAppPrefs();
+      final listener = ReferralLinkListener(prefs, links: links);
+      await listener.start();
+      expect(prefs.pendingReferralCode, '7Q2K9MXA'); // the link that launched the app
+
+      links.stream.add(Uri.parse('https://evil.example/r/K3M9P2QA'));
+      await pumpEventQueue();
+      expect(prefs.pendingReferralCode, '7Q2K9MXA'); // other hosts are ignored
+
+      links.stream.add(Uri.parse('futurefashion://r/K3M9P2QA'));
+      await pumpEventQueue();
+      expect(prefs.pendingReferralCode, 'K3M9P2QA'); // a later link while running
+      await listener.stop();
     });
   });
 
@@ -163,4 +184,17 @@ void main() {
     const Json j = {'a': 'x'};
     expect(() => j.integer('a'), throwsA(isA<FormatException>().having((e) => e.message, 'message', contains('"a"'))));
   });
+}
+
+class _FakeAppLinks extends Fake implements AppLinks {
+  _FakeAppLinks(this.initial);
+
+  final Uri? initial;
+  final stream = StreamController<Uri>();
+
+  @override
+  Future<Uri?> getInitialLink() async => initial;
+
+  @override
+  Stream<Uri> get uriLinkStream => stream.stream;
 }

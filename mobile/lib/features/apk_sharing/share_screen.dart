@@ -42,7 +42,7 @@ class _ShareScreenState extends ConsumerState<ShareScreen> {
   void dispose() {
     // A quiet boundary: leaving the share screen. Frequency-capped by the server.
     final settings = _adSettings;
-    if (settings != null) _ads.maybeShowInterstitial(settings);
+    if (settings != null) _ads.maybeShowInterstitial(settings).ignore(); // an ad problem never reaches the user
     super.dispose();
   }
 

@@ -11,6 +11,7 @@ import 'package:future_fashion/core/api/models.dart';
 import 'package:future_fashion/core/auth/token_store.dart';
 import 'package:future_fashion/core/providers.dart';
 import 'package:future_fashion/core/storage/prefs.dart';
+import 'package:future_fashion/features/ads/ads.dart';
 
 /// Test data shaped exactly like docs/API.md. Clearly fake: only tests use it.
 Json configJson({
@@ -19,6 +20,7 @@ Json configJson({
   bool maintenance = false,
   String minVersion = '1.0.0',
   bool signupsOpen = true,
+  bool adsOn = false,
 }) => {
   'server_now': serverNow,
   'company_name': 'Future Fashion',
@@ -51,8 +53,8 @@ Json configJson({
   'promotion': {'allocation_paise': null},
   'announcement': null,
   'ads': {
-    'banner_enabled': false,
-    'interstitial_enabled': false,
+    'banner_enabled': adsOn,
+    'interstitial_enabled': adsOn,
     'rewarded_enabled': false,
     'min_interstitial_interval_seconds': 300,
   },
@@ -308,8 +310,29 @@ class FakeApi implements FutureFashionApi {
   }
 }
 
+/// An ad SDK that never became ready (no consent, no network, or it failed
+/// to start), optionally also throwing when asked to show an ad.
+class FakeAds implements AdsService {
+  FakeAds({this.throwOnInterstitial = false});
+
+  final bool throwOnInterstitial;
+  int interstitialRequests = 0;
+
+  @override
+  bool get enabled => false;
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<void> maybeShowInterstitial(AdSettings settings) async {
+    interstitialRequests++;
+    if (throwOnInterstitial) throw StateError('ad SDK failure');
+  }
+}
+
 class TestEnv {
-  TestEnv({FakeApi? api, bool signedIn = false, bool onboardingSeen = true})
+  TestEnv({FakeApi? api, this.ads, bool signedIn = false, bool onboardingSeen = true})
     : api = api ?? FakeApi(),
       tokens = MemoryTokenStore(),
       prefs = MemoryAppPrefs()..onboardingSeen = onboardingSeen {
@@ -317,6 +340,7 @@ class TestEnv {
   }
 
   final FakeApi api;
+  final AdsService? ads;
   final MemoryTokenStore tokens;
   final MemoryAppPrefs prefs;
 
@@ -327,6 +351,7 @@ class TestEnv {
       tokenStoreProvider.overrideWithValue(tokens),
       prefsProvider.overrideWithValue(prefs),
       appVersionProvider.overrideWithValue('1.0.0'),
+      if (ads != null) adsServiceProvider.overrideWithValue(ads!),
     ],
     child: const FutureFashionApp(),
   );
