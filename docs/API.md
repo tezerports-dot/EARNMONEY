@@ -109,6 +109,8 @@ Public, safe configuration. The app loads it at startup, on resume and when a co
 {
   "server_now": "2026-09-24T12:00:00Z",
   "company_name": "Future Fashion",
+  "company_legal_name": null,
+  "support_email": null,
   "min_app_version": "1.0.0",
   "apk_download_url": "https://futurefashion.example/download",
   "maintenance": { "active": false, "message": null, "until": null },
@@ -155,6 +157,7 @@ Public, safe configuration. The app loads it at startup, on resume and when a co
 - `promotion.allocation_paise` is the amount recorded into the promotional pool, or `null` when nothing is recorded or the admin hides it.
 - `announcement`, when set, is `{ "text": "…", "tone": "info" | "success" | "warning" }`.
 - `links.*` are `null` when not configured, and the app then shows the terms bundled in the APK.
+- `company_legal_name` and `support_email` fill in the bundled terms and privacy notice. Both are `null` until the admin enters them, and the app then uses the company name and the Support page.
 
 ### `GET /v1/captcha`
 

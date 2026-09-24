@@ -91,6 +91,8 @@ async def public_config(db: AsyncSession) -> dict:
     return {
         "server_now": timeutil.iso(at),
         "company_name": settings.company_name,
+        "company_legal_name": settings.company_legal_name,
+        "support_email": settings.support_email,
         "min_app_version": settings.min_app_version,
         "apk_download_url": settings.apk_download_url,
         "maintenance": {

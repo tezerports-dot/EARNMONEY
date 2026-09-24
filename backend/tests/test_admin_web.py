@@ -98,6 +98,27 @@ async def test_admin_cannot_set_the_member_count(client, telegram):
     assert (await client.get("/v1/config")).json()["membership"]["verified_count"] == 1
 
 
+async def test_legal_details_reach_the_app(client):
+    """The app fills its bundled terms from these, so they must come through /v1/config."""
+    config = (await client.get("/v1/config")).json()
+    assert config["company_legal_name"] is None and config["support_email"] is None
+    csrf = await admin_login(client)
+    form = {
+        "csrf": csrf,
+        "company_name": "Future Fashion",
+        "company_legal_name": "Future Fashion Private Limited",
+        "support_email": "help@futurefashion.example",
+        "min_app_version": "1.0.0",
+    }
+    assert (await client.post("/admin/settings", data=form)).status_code == 303
+    from app.api.deps import reset_gate_cache
+
+    reset_gate_cache()
+    config = (await client.get("/v1/config")).json()
+    assert config["company_legal_name"] == "Future Fashion Private Limited"
+    assert config["support_email"] == "help@futurefashion.example"
+
+
 async def test_funding_form_records_once(client):
     csrf = await admin_login(client)
     form = {"csrf": csrf, "amount_rupees": "1,00,000", "memo": "Board approval 12", "nonce": "fixed-nonce-1"}
