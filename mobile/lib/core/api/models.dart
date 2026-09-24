@@ -169,6 +169,8 @@ class PublicConfig {
   const PublicConfig({
     required this.serverNow,
     required this.companyName,
+    required this.companyLegalName,
+    required this.supportEmail,
     required this.minAppVersion,
     required this.apkDownloadUrl,
     required this.maintenanceActive,
@@ -196,6 +198,8 @@ class PublicConfig {
     return PublicConfig(
       serverNow: j.time('server_now'),
       companyName: j.str('company_name'),
+      companyLegalName: j.strOrNull('company_legal_name'),
+      supportEmail: j.strOrNull('support_email'),
       minAppVersion: j.str('min_app_version'),
       apkDownloadUrl: j.strOrNull('apk_download_url'),
       maintenanceActive: maintenance.boolean('active'),
@@ -219,6 +223,8 @@ class PublicConfig {
 
   final DateTime serverNow;
   final String companyName;
+  final String? companyLegalName;
+  final String? supportEmail;
   final String minAppVersion;
   final String? apkDownloadUrl;
   final bool maintenanceActive;
@@ -391,11 +397,11 @@ class DirectReferral {
   final int rewardPaise;
 }
 
-class Page<T> {
-  const Page(this.items, this.nextCursor);
+class Paged<T> {
+  const Paged(this.items, this.nextCursor);
 
-  factory Page.fromJson(Json j, T Function(Json) item) =>
-      Page(j.list('items').map(item).toList(), j.strOrNull('next_cursor'));
+  factory Paged.fromJson(Json j, T Function(Json) item) =>
+      Paged(j.list('items').map(item).toList(), j.strOrNull('next_cursor'));
 
   final List<T> items;
   final String? nextCursor;

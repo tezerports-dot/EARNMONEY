@@ -27,7 +27,7 @@ abstract interface class FutureFashionApi {
 
   Future<Dashboard> dashboard();
   Future<ReferralSummary> referralSummary();
-  Future<Page<DirectReferral>> directReferrals({String? cursor, int limit = 20});
+  Future<Paged<DirectReferral>> directReferrals({String? cursor, int limit = 20});
   Future<ShareInfo> shareInfo();
 
   Future<Wallet> wallet();
@@ -38,7 +38,7 @@ abstract interface class FutureFashionApi {
     required String ifsc,
     required String idempotencyKey,
   });
-  Future<Page<Withdrawal>> withdrawals({String? cursor, int limit = 20});
+  Future<Paged<Withdrawal>> withdrawals({String? cursor, int limit = 20});
   Future<Withdrawal> requestWithdrawal({required int amountPaise, required String idempotencyKey});
 }
 
@@ -121,7 +121,7 @@ class HttpFutureFashionApi implements FutureFashionApi {
       ReferralSummary.fromJson(await _client.get('/v1/referrals/summary'));
 
   @override
-  Future<Page<DirectReferral>> directReferrals({String? cursor, int limit = 20}) async => Page.fromJson(
+  Future<Paged<DirectReferral>> directReferrals({String? cursor, int limit = 20}) async => Paged.fromJson(
     await _client.get('/v1/referrals/direct', query: {'limit': limit, 'cursor': ?cursor}),
     DirectReferral.fromJson,
   );
@@ -150,7 +150,7 @@ class HttpFutureFashionApi implements FutureFashionApi {
   );
 
   @override
-  Future<Page<Withdrawal>> withdrawals({String? cursor, int limit = 20}) async => Page.fromJson(
+  Future<Paged<Withdrawal>> withdrawals({String? cursor, int limit = 20}) async => Paged.fromJson(
     await _client.get('/v1/withdrawals', query: {'limit': limit, 'cursor': ?cursor}),
     Withdrawal.fromJson,
   );
