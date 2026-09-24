@@ -35,6 +35,13 @@ class User(Base):
             "pending_expires_at",
             postgresql_where=text("status = 'PENDING_VERIFICATION'"),
         ),
+        # Migration 0002: counting a referrer's unverified friends.
+        Index(
+            "ix_users_referrer_pending",
+            "referrer_id",
+            "pending_expires_at",
+            postgresql_where=text("status = 'PENDING_VERIFICATION'"),
+        ),
     )
 
     id: Mapped[int] = pk()

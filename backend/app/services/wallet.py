@@ -14,6 +14,7 @@ from app.models import (
     User,
     WithdrawalRequest,
 )
+from app.models.ledger import USER_ACCOUNT_KINDS
 from app.services import campaign as campaign_service
 from app.services import ledger
 
@@ -77,7 +78,9 @@ async def entries(db: AsyncSession, user_id: int, limit: int, before_id: int | N
         select(LedgerEntry, LedgerTransaction, LedgerAccount.kind)
         .join(LedgerTransaction, LedgerTransaction.id == LedgerEntry.transaction_id)
         .join(LedgerAccount, LedgerAccount.id == LedgerEntry.account_id)
-        .where(LedgerAccount.user_id == user_id)
+        # Naming the kinds (the only ones a user can own) lets Postgres use the
+        # (kind, user_id) index instead of scanning every account.
+        .where(LedgerAccount.kind.in_(USER_ACCOUNT_KINDS), LedgerAccount.user_id == user_id)
         .order_by(LedgerEntry.id.desc())
         .limit(limit * 2 + 2)
     )
