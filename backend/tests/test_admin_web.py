@@ -1,5 +1,5 @@
 """Admin panel, public pages and request gates (CLAUDE.md §24, §27;
-abuse cases 34 and 39)."""
+abuse cases 29, 30, 34 and 39)."""
 
 from __future__ import annotations
 
@@ -186,9 +186,19 @@ async def test_admin_pages_render(client):
 
 
 async def test_landing_page_and_download(client):
+    """Abuse cases 29 and 30. Without the app, the page shows the code to copy
+    and a download; with the app, "I already have the app" opens it with the
+    code. Opening a link binds nothing: only signing up with the code does."""
     r = await client.get("/r/7q2k9mxa")
     assert r.status_code == 200 and "7Q2K9MXA" in r.text
     assert "Future Fashion" in r.text
+    assert "intent://r/7Q2K9MXA#Intent;scheme=futurefashion;package=" in r.text
+    assert 'href="/download"' in r.text
+    async with db.sessionmaker()() as s, s.begin():
+        assert (await s.execute(text("SELECT count(*) FROM users"))).scalar_one() == 0
+    broken = await client.get("/r/<script>")
+    assert broken.status_code == 200 and "<script>alert" not in broken.text
+    assert "isn't complete" in broken.text and "intent://" not in broken.text
     assert (await client.get("/download")).status_code == 404  # no APK URL configured yet
     async with db.sessionmaker()() as s, s.begin():
         (await s.get(AppSettings, 1)).apk_download_url = "https://cdn.example/futurefashion-1.0.0.apk"

@@ -49,6 +49,13 @@ async def pick_verifier(db: AsyncSession) -> TelegramBot | None:
     return random.choices(bots, weights=[b.weight for b in bots], k=1)[0]
 
 
+async def can_serve(db: AsyncSession, bot_id: int) -> bool:
+    """Whether an open session's bot can still talk to its user. A rate limit
+    passes in seconds, so only a failing or switched-off bot counts as gone."""
+    bot = await db.get(TelegramBot, bot_id)
+    return bot is not None and bot.enabled and bot.health != "FAILING"
+
+
 async def watcher(db: AsyncSession) -> TelegramBot | None:
     return (
         await db.execute(

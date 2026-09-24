@@ -288,3 +288,38 @@ async def test_rate_limited_bot_is_skipped(client, telegram):
         user = await signup(client)
         picked.add((await client.post("/v1/telegram/verification-session", headers=auth(user["tokens"]))).json()["bot_username"])
     assert picked == {"verify1_bot", "verify2_bot"}
+
+
+async def test_session_moves_off_a_failed_bot(client, telegram):
+    """Abuse case 36: if the user's bot goes down, reopening moves them to a healthy one."""
+    setup = await telegram_setup(telegram, channels=0)
+    phone = new_phone()
+    body = await signup(client, phone)
+    old_token = await open_session(client, body)
+    bot2 = await helpers.register_bot(telegram, "verify2")
+
+    # A short Telegram rate limit passes on its own, so the user stays put.
+    setup.verifier.fake.fail_with = TelegramError("Too Many Requests", code=429, retry_after=30)
+    async with db.sessionmaker()() as s, s.begin():
+        with pytest.raises(TelegramError):
+            await bots.call(await s.get(TelegramBot, setup.verifier.db_id), "sendMessage", chat_id=1, text="x")
+    assert await open_session(client, body) == old_token
+
+    # Repeated errors take the bot out of service; the next open moves the user.
+    setup.verifier.fake.fail_with = TelegramError("Bad Gateway", code=502)
+    async with db.sessionmaker()() as s, s.begin():
+        bot = await s.get(TelegramBot, setup.verifier.db_id)
+        for _ in range(bots.FAILING_AFTER):
+            with pytest.raises(TelegramError):
+                await bots.call(bot, "sendMessage", chat_id=1, text="x")
+        assert bot.health == "FAILING"
+    r = await client.post("/v1/telegram/verification-session", headers=auth(body["tokens"]))
+    assert r.json()["bot_username"] == "verify2_bot"
+    assert r.json()["deep_link"].split("start=")[1] != old_token
+
+    # The old link is dead everywhere, and the new bot finishes the job.
+    tg = new_telegram_id()
+    await post_update(client, bot2, message(tg, f"/start {old_token}"))
+    assert "isn't valid anymore" in bot2.fake.sent_texts(tg)[-1]
+    await helpers.verify(client, helpers.TelegramSetup(bot2, setup.watcher, setup.channels), body, phone, tg)
+    assert (await client.get("/v1/me", headers=auth(body["tokens"]))).json()["status"] == "ACTIVE"

@@ -1,4 +1,4 @@
-"""Signup, login, sessions (CLAUDE.md §5, abuse cases 3, 5, 9, 10, 17, 21, 25)."""
+"""Signup, login, sessions (CLAUDE.md §5, abuse cases 3, 5, 9, 10, 17, 21, 25, 28)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,17 @@ from sqlalchemy import func, select
 from app import db
 from app.models import AuthSession, IdempotencyKey, User
 from tests import helpers
-from tests.helpers import auth, captcha, idem, new_phone, signup, signup_response
+from tests.helpers import (
+    auth,
+    captcha,
+    fund_pool,
+    idem,
+    new_phone,
+    signup,
+    signup_response,
+    telegram_setup,
+    verified_user,
+)
 
 
 async def count_users() -> int:
@@ -240,3 +250,25 @@ async def test_bad_tokens(client):
     for header in ("Bearer nope", "Basic abc", "Bearer ", "Bearer " + "x" * 500):
         r = await client.get("/v1/me", headers={"Authorization": header})
         assert r.status_code == 401
+
+
+async def test_reinstall_keeps_the_account_and_referrer(client, telegram):
+    """Abuse case 28: nothing lives only on the phone. A reinstalled app logs in
+    again and finds the same account, referrer and rewards."""
+    setup = await telegram_setup(telegram, channels=0)
+    await fund_pool()
+    a = await verified_user(client, setup)
+    b = await verified_user(client, setup, a["user"]["public_id"])
+    stranger = await verified_user(client, setup)
+
+    fresh = await helpers.login(client, {"phone": b["phone"]})  # no tokens survive a reinstall
+    me = (await client.get("/v1/me", headers=auth(fresh["tokens"]))).json()
+    assert (me["public_id"], me["status"], me["referred_by"]) == (b["user"]["public_id"], "ACTIVE", a["user"]["public_id"])
+
+    # Signing up again, even with someone else's code, can't make a second account or move the referral.
+    r = await signup_response(client, b["phone"], stranger["user"]["public_id"])
+    assert r.json()["error"]["code"] == "PHONE_UNAVAILABLE"
+    await helpers.refresh(client, a)
+    assert (await client.get("/v1/wallet", headers=auth(a["tokens"]))).json()["total_earned_paise"] == 20000
+    await helpers.refresh(client, stranger)
+    assert (await client.get("/v1/wallet", headers=auth(stranger["tokens"]))).json()["total_earned_paise"] == 0

@@ -1,7 +1,8 @@
 """Withdrawals: requested by the user, paid or failed only by an admin.
 
 REQUESTED → PROCESSING (admin exports a batch) → PAID | FAILED
-FAILED returns the money to the user's available balance.
+FAILED returns the money to the user's available balance. A user with an open
+risk flag stays REQUESTED until an admin looks and resolves the flag.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import errors, ids, timeutil
-from app.models import BankAccount, LedgerAccount, PayoutBatch, User, WithdrawalRequest
+from app.models import BankAccount, LedgerAccount, PayoutBatch, RiskFlag, User, WithdrawalRequest
 from app.services import audit, ledger, wallet
 from app.services import campaign as campaign_service
 
@@ -136,11 +137,13 @@ async def history(db: AsyncSession, user: User, limit: int, cursor: str | None) 
 
 
 async def create_batch(db: AsyncSession, admin: str, limit: int = 1000) -> PayoutBatch | None:
+    """Batch the oldest requests, holding back anyone with an open risk flag."""
+    flagged = select(RiskFlag.user_id).where(RiskFlag.resolved_at.is_(None))
     requests = list(
         (
             await db.execute(
                 select(WithdrawalRequest)
-                .where(WithdrawalRequest.status == "REQUESTED")
+                .where(WithdrawalRequest.status == "REQUESTED", WithdrawalRequest.user_id.not_in(flagged))
                 .order_by(WithdrawalRequest.requested_at)
                 .limit(limit)
                 .with_for_update(skip_locked=True)

@@ -71,13 +71,17 @@ async def latest_session(db: AsyncSession, user_id: int, *, lock: bool = False) 
 
 
 async def open_session(db: AsyncSession, user: User) -> dict:
-    """Return the user's open session, or start a new one on a healthy bot."""
+    """Return the user's open session, or start a new one on a healthy bot.
+
+    An open session whose bot has since failed or been switched off is
+    replaced, so the user isn't left with a link nobody answers.
+    """
     if user.status == "ACTIVE":
         raise errors.AlreadyVerified()
     if user.status != "PENDING_VERIFICATION":
         raise errors.AccountSuspended()
     current = await latest_session(db, user.id, lock=True)
-    if current is not None and is_open(current):
+    if current is not None and is_open(current) and await bots.can_serve(db, current.bot_id):
         return await session_json(db, current)
 
     await ratelimit.hit(ratelimit.VERIFICATION_SESSIONS, user.id)

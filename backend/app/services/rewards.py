@@ -11,6 +11,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import timeutil
 from app.models import PAID_LEVEL, LedgerAccount, ReferralReward, User
 from app.services import audit, ledger
 from app.services import campaign as campaign_service
@@ -66,6 +67,7 @@ async def credit_for_verified_user(db: AsyncSession, user: User) -> ReferralRewa
         amount_paise=amount,
         campaign_id=campaign.id,
         ledger_transaction_id=txn.id,
+        created_at=timeutil.now(),  # the app's clock, like every rule that reads it (risk.after_verification)
     )
     db.add(reward)
     await db.flush()
