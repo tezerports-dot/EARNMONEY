@@ -154,7 +154,11 @@ class _GoogleBannerState extends State<_GoogleBanner> {
         children: [
           Text('Advertisement', style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: Space.xs),
-          SizedBox(width: ad.size.width.toDouble(), height: ad.size.height.toDouble(), child: AdWidget(ad: ad)),
+          SizedBox(
+            width: ad.size.width.toDouble(),
+            height: ad.size.height.toDouble(),
+            child: AdWidget(ad: ad),
+          ),
         ],
       ),
     );

@@ -82,17 +82,21 @@ class _PagedListState<T> extends State<PagedList<T>> {
     } else {
       children.addAll(_items.map(widget.itemBuilder));
       if (_error != null) {
-        children.add(Padding(
-          padding: const EdgeInsets.only(top: Space.l),
-          child: ErrorView(error: _error!, onRetry: _next),
-        ));
+        children.add(
+          Padding(
+            padding: const EdgeInsets.only(top: Space.l),
+            child: ErrorView(error: _error!, onRetry: _next),
+          ),
+        );
       } else if (!_done) {
-        children.add(Padding(
-          padding: const EdgeInsets.only(top: Space.l),
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : SecondaryButton(label: 'Load more', onPressed: _next),
-        ));
+        children.add(
+          Padding(
+            padding: const EdgeInsets.only(top: Space.l),
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : SecondaryButton(label: 'Load more', onPressed: _next),
+          ),
+        );
       }
     }
     return RefreshIndicator(

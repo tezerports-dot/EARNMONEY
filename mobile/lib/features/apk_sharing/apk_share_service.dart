@@ -39,10 +39,15 @@ class ApkShareService {
       return;
     }
     await SharePlus.instance.share(
-      ShareParams(text: text, subject: companyName, files: [XFile(path, mimeType: apkMimeType)]),
+      ShareParams(
+        text: text,
+        subject: companyName,
+        files: [XFile(path, mimeType: apkMimeType)],
+      ),
     );
   }
 
-  Future<void> shareLink({required String companyName, required ShareInfo info}) =>
-      SharePlus.instance.share(ShareParams(text: '${message(companyName, info)}\nDownload the app: ${info.apkDownloadUrl}'));
+  Future<void> shareLink({required String companyName, required ShareInfo info}) => SharePlus.instance.share(
+    ShareParams(text: '${message(companyName, info)}\nDownload the app: ${info.apkDownloadUrl}'),
+  );
 }

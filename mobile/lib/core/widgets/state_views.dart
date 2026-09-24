@@ -36,7 +36,13 @@ class LoadingView extends StatelessWidget {
 }
 
 class EmptyView extends StatelessWidget {
-  const EmptyView({super.key, required this.title, required this.message, this.icon = Icons.inbox_outlined, this.action});
+  const EmptyView({
+    super.key,
+    required this.title,
+    required this.message,
+    this.icon = Icons.inbox_outlined,
+    this.action,
+  });
 
   final String title;
   final String message;
@@ -68,7 +74,9 @@ class ErrorView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final offline = error is OfflineException;
-    final message = error is ApiException ? (error as ApiException).userMessage : const UnexpectedException().userMessage;
+    final message = error is ApiException
+        ? (error as ApiException).userMessage
+        : const UnexpectedException().userMessage;
     return GlassCard(
       child: Column(
         children: [

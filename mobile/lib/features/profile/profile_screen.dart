@@ -110,7 +110,10 @@ class _InfoRow extends StatelessWidget {
         child: MergeSemantics(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [Text(label, style: AppType.caption), Text(value, style: AppType.label)],
+            children: [
+              Text(label, style: AppType.caption),
+              Text(value, style: AppType.label),
+            ],
           ),
         ),
       ),

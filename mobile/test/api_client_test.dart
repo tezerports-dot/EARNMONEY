@@ -27,7 +27,11 @@ class ScriptedAdapter implements HttpClientAdapter {
   );
 
   @override
-  Future<ResponseBody> fetch(RequestOptions options, Stream<Uint8List>? requestStream, Future<void>? cancelFuture) async {
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
     requests.add(options);
     final next = script.removeAt(0);
     if (next is DioExceptionType) throw DioException(requestOptions: options, type: next);

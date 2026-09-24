@@ -242,7 +242,12 @@ class _Done extends StatelessWidget {
           children: [
             _ReviewRow('Reference', result.id),
             const Divider(height: Space.xl),
-            Row(children: [const Expanded(child: Text('Status', style: AppType.bodySmall)), WithdrawalStatusChip(result.status)]),
+            Row(
+              children: [
+                const Expanded(child: Text('Status', style: AppType.bodySmall)),
+                WithdrawalStatusChip(result.status),
+              ],
+            ),
           ],
         ),
       ),
@@ -317,7 +322,9 @@ class _ReviewRow extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(child: Text(label, style: AppType.bodySmall)),
-        Flexible(child: Text(value, style: AppType.label, textAlign: TextAlign.right)),
+        Flexible(
+          child: Text(value, style: AppType.label, textAlign: TextAlign.right),
+        ),
       ],
     ),
   );

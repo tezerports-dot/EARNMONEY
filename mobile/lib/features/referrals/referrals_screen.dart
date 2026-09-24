@@ -60,7 +60,11 @@ class ReferralsScreen extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: Space.xxl),
-        PrimaryButton(label: 'Invite more friends', icon: Icons.ios_share_rounded, onPressed: () => context.push('/share')),
+        PrimaryButton(
+          label: 'Invite more friends',
+          icon: Icons.ios_share_rounded,
+          onPressed: () => context.push('/share'),
+        ),
         const SizedBox(height: Space.xl),
         const AdBanner(),
       ],
@@ -89,11 +93,18 @@ class _LevelTable extends StatelessWidget {
       child: Column(
         children: [
           Table(
-            columnWidths: const {0: FlexColumnWidth(1.1), 1: FlexColumnWidth(1), 2: FlexColumnWidth(1.2), 3: FlexColumnWidth(1.3)},
+            columnWidths: const {
+              0: FlexColumnWidth(1.1),
+              1: FlexColumnWidth(1),
+              2: FlexColumnWidth(1.2),
+              3: FlexColumnWidth(1.3),
+            },
             defaultVerticalAlignment: TableCellVerticalAlignment.middle,
             children: [
               TableRow(
-                decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: AppColors.line))),
+                decoration: const BoxDecoration(
+                  border: Border(bottom: BorderSide(color: AppColors.line)),
+                ),
                 children: [
                   cell('Layer', header: true, align: TextAlign.left),
                   cell('Users', header: true),
@@ -127,7 +138,9 @@ class _LevelTable extends StatelessWidget {
                   ],
                 ),
               TableRow(
-                decoration: const BoxDecoration(border: Border(top: BorderSide(color: AppColors.line))),
+                decoration: const BoxDecoration(
+                  border: Border(top: BorderSide(color: AppColors.line)),
+                ),
                 children: [
                   cell('Total', align: TextAlign.left),
                   cell(groupIndian(summary.totalUserCount)),
@@ -195,7 +208,10 @@ class _LevelOneCard extends ConsumerWidget {
                       children: [
                         for (final r in page.items) DirectReferralTile(referral: r),
                         const SizedBox(height: Space.s),
-                        SecondaryButton(label: 'See all direct referrals', onPressed: () => context.push('/referrals/direct')),
+                        SecondaryButton(
+                          label: 'See all direct referrals',
+                          onPressed: () => context.push('/referrals/direct'),
+                        ),
                       ],
                     ),
             ),
@@ -220,7 +236,10 @@ class DirectReferralTile extends StatelessWidget {
           CircleAvatar(
             radius: 20,
             backgroundColor: AppColors.plum,
-            child: Text(referral.publicId.substring(0, 2), style: AppType.caption.copyWith(color: AppColors.goldBright)),
+            child: Text(
+              referral.publicId.substring(0, 2),
+              style: AppType.caption.copyWith(color: AppColors.goldBright),
+            ),
           ),
           const SizedBox(width: Space.m),
           Expanded(

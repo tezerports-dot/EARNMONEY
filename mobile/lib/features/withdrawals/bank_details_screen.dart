@@ -60,7 +60,9 @@ class _BankDetailsScreenState extends ConsumerState<BankDetailsScreen> {
             : 'Enter the name exactly as on the bank account.'
         ..['account_number'] = RegExp(r'^\d{9,18}$').hasMatch(number) ? null : 'Account numbers have 9 to 18 digits.'
         ..['confirm'] = _confirm.text.replaceAll(' ', '') == number ? null : 'The numbers don’t match.'
-        ..['ifsc'] = RegExp(r'^[A-Z]{4}0[A-Z0-9]{6}$').hasMatch(ifsc) ? null : 'IFSC has 11 characters, like HDFC0001234.';
+        ..['ifsc'] = RegExp(r'^[A-Z]{4}0[A-Z0-9]{6}$').hasMatch(ifsc)
+            ? null
+            : 'IFSC has 11 characters, like HDFC0001234.';
       _formError = null;
     });
     if (_errors.values.any((e) => e != null)) return;

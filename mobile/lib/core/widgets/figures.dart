@@ -52,8 +52,10 @@ class Amount extends StatelessWidget {
   final TextStyle? style;
 
   @override
-  Widget build(BuildContext context) =>
-      Text(formatPaise(paise), style: style ?? AppType.title.copyWith(fontFeatures: const [FontFeature.tabularFigures()]));
+  Widget build(BuildContext context) => Text(
+    formatPaise(paise),
+    style: style ?? AppType.title.copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
+  );
 }
 
 /// Animated progress toward a goal, with the percentage in words too.
@@ -91,9 +93,7 @@ class GoalProgress extends StatelessWidget {
                     builder: (context, t, _) => FractionallySizedBox(
                       widthFactor: t == 0 ? 0 : t.clamp(0.012, 1.0),
                       child: const DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(colors: [AppColors.violet, AppColors.gold]),
-                        ),
+                        decoration: BoxDecoration(gradient: LinearGradient(colors: [AppColors.violet, AppColors.gold])),
                       ),
                     ),
                   ),
@@ -120,7 +120,9 @@ class SectionTitle extends StatelessWidget {
     padding: const EdgeInsets.only(top: Space.xxl, bottom: Space.m),
     child: Row(
       children: [
-        Expanded(child: Semantics(header: true, child: Text(text, style: AppType.title))),
+        Expanded(
+          child: Semantics(header: true, child: Text(text, style: AppType.title)),
+        ),
         ?trailing,
       ],
     ),

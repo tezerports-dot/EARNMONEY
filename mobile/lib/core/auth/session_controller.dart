@@ -70,7 +70,12 @@ class SessionController extends AsyncNotifier<Session> {
     state = AsyncData(SignedIn(result.user));
   }
 
-  Future<void> login({required String phone, required String password, String? captchaId, String? captchaAnswer}) async {
+  Future<void> login({
+    required String phone,
+    required String password,
+    String? captchaId,
+    String? captchaAnswer,
+  }) async {
     final result = await ref
         .read(apiProvider)
         .login(phone: phone, password: password, captchaId: captchaId, captchaAnswer: captchaAnswer);

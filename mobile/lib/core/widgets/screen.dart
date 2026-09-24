@@ -52,9 +52,14 @@ class AppScreen extends StatelessWidget {
           top: title == null && !canPop,
           child: Column(
             children: [
-              Expanded(child: onRefresh == null ? list : RefreshIndicator(onRefresh: onRefresh!, child: list)),
+              Expanded(
+                child: onRefresh == null ? list : RefreshIndicator(onRefresh: onRefresh!, child: list),
+              ),
               if (bottom != null)
-                Padding(padding: const EdgeInsets.fromLTRB(Space.screen, Space.s, Space.screen, Space.l), child: bottom),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(Space.screen, Space.s, Space.screen, Space.l),
+                  child: bottom,
+                ),
             ],
           ),
         ),

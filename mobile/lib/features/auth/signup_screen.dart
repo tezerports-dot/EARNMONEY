@@ -254,7 +254,11 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
               prefixIcon: Icons.card_giftcard_rounded,
               textCapitalization: TextCapitalization.characters,
               maxLength: 12,
-              suffix: IconButton(tooltip: 'Paste code', icon: const Icon(Icons.content_paste_rounded), onPressed: _pasteCode),
+              suffix: IconButton(
+                tooltip: 'Paste code',
+                icon: const Icon(Icons.content_paste_rounded),
+                onPressed: _pasteCode,
+              ),
               onChanged: (value) {
                 if (normalizeReferralCode(value) != null) _checkCode();
               },
@@ -315,7 +319,10 @@ class _InlineLink extends StatelessWidget {
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 2),
-        child: Text(label, style: AppType.caption.copyWith(color: AppColors.goldBright, decoration: TextDecoration.underline)),
+        child: Text(
+          label,
+          style: AppType.caption.copyWith(color: AppColors.goldBright, decoration: TextDecoration.underline),
+        ),
       ),
     ),
   );

@@ -56,10 +56,8 @@ class _Illustration3DState extends State<Illustration3D> with SingleTickerProvid
     final size = widget.size;
     final art = AnimatedBuilder(
       animation: _controller,
-      builder: (context, child) => Transform.translate(
-        offset: Offset(0, sin(_controller.value * 2 * pi) * size * 0.025),
-        child: child,
-      ),
+      builder: (context, child) =>
+          Transform.translate(offset: Offset(0, sin(_controller.value * 2 * pi) * size * 0.025), child: child),
       child: SizedBox.square(
         dimension: size,
         child: Stack(
@@ -84,8 +82,11 @@ class _Illustration3DState extends State<Illustration3D> with SingleTickerProvid
   }
 }
 
-Rect _ringRect(Size size) =>
-    Rect.fromCenter(center: Offset(size.width / 2, size.height * 0.58), width: size.width * 0.96, height: size.height * 0.3);
+Rect _ringRect(Size size) => Rect.fromCenter(
+  center: Offset(size.width / 2, size.height * 0.58),
+  width: size.width * 0.96,
+  height: size.height * 0.3,
+);
 
 class _OrbPainter extends CustomPainter {
   _OrbPainter(this.accent, this.sphere);
@@ -103,9 +104,8 @@ class _OrbPainter extends CustomPainter {
       center,
       size.width / 2,
       Paint()
-        ..shader = RadialGradient(
-          colors: [accent.withValues(alpha: 0.45), accent.withValues(alpha: 0)],
-        ).createShader(Rect.fromCircle(center: center, radius: size.width / 2)),
+        ..shader = RadialGradient(colors: [accent.withValues(alpha: 0.45), accent.withValues(alpha: 0)])
+            .createShader(Rect.fromCircle(center: center, radius: size.width / 2)),
     );
 
     // Back half of the ring, behind the sphere.
@@ -178,9 +178,7 @@ class _RingFrontPainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = size.width * 0.022
-        ..shader = LinearGradient(
-          colors: [accent, AppColors.goldBright, accent],
-        ).createShader(rect),
+        ..shader = LinearGradient(colors: [accent, AppColors.goldBright, accent]).createShader(rect),
     );
     canvas.restore();
   }
@@ -199,12 +197,8 @@ abstract final class Illustrations {
     accent: AppColors.telegram,
     semanticLabel: 'Secure verification',
   );
-  static Widget success({double size = 180}) => Illustration3D(
-    icon: Icons.check_rounded,
-    size: size,
-    accent: AppColors.success,
-    semanticLabel: 'Success',
-  );
+  static Widget success({double size = 180}) =>
+      Illustration3D(icon: Icons.check_rounded, size: size, accent: AppColors.success, semanticLabel: 'Success');
   static Widget network({double size = 150}) =>
       Illustration3D(icon: Icons.hub_rounded, size: size, semanticLabel: 'Referral network');
   static Widget wallet({double size = 150}) => Illustration3D(

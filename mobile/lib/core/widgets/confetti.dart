@@ -38,7 +38,9 @@ class _ConfettiBurstState extends State<ConfettiBurst> with SingleTickerProvider
   @override
   Widget build(BuildContext context) {
     if (Motion.of(context).reduced) return const SizedBox.shrink();
-    return IgnorePointer(child: CustomPaint(painter: _ConfettiPainter(_controller, _pieces), size: Size.infinite));
+    return IgnorePointer(
+      child: CustomPaint(painter: _ConfettiPainter(_controller, _pieces), size: Size.infinite),
+    );
   }
 }
 
@@ -49,8 +51,13 @@ class _Piece {
       speed = 0.6 + r.nextDouble() * 0.6,
       spin = r.nextDouble() * 6,
       delay = r.nextDouble() * 0.25,
-      color = const [AppColors.gold, AppColors.goldBright, AppColors.violet, AppColors.electric, AppColors.success][r
-          .nextInt(5)];
+      color = const [
+        AppColors.gold,
+        AppColors.goldBright,
+        AppColors.violet,
+        AppColors.electric,
+        AppColors.success,
+      ][r.nextInt(5)];
 
   final double x;
   final double drift;

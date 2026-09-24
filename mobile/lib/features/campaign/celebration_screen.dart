@@ -35,7 +35,10 @@ class _CelebrationScreenState extends ConsumerState<CelebrationScreen> {
         AppScreen(
           showBack: false,
           particles: true,
-          bottom: PrimaryButton(label: 'Continue', onPressed: () => context.canPop() ? context.pop() : context.go('/home')),
+          bottom: PrimaryButton(
+            label: 'Continue',
+            onPressed: () => context.canPop() ? context.pop() : context.go('/home'),
+          ),
           children: [
             const SizedBox(height: Space.huge),
             Center(child: Illustrations.launch(size: 220)),

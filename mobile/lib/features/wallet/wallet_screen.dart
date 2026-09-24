@@ -95,9 +95,13 @@ class _WalletBody extends StatelessWidget {
         const SizedBox(height: Space.m),
         Row(
           children: [
-            Expanded(child: _Figure(label: 'Being paid out', paise: w.inWithdrawalPaise)),
+            Expanded(
+              child: _Figure(label: 'Being paid out', paise: w.inWithdrawalPaise),
+            ),
             const SizedBox(width: Space.m),
-            Expanded(child: _Figure(label: 'Withdrawn', paise: w.withdrawnPaise)),
+            Expanded(
+              child: _Figure(label: 'Withdrawn', paise: w.withdrawnPaise),
+            ),
           ],
         ),
         const SizedBox(height: Space.l),
@@ -135,9 +139,13 @@ class _WalletBody extends StatelessWidget {
         const SizedBox(height: Space.m),
         Row(
           children: [
-            Expanded(child: SecondaryButton(label: 'Bank details', onPressed: () => context.push('/wallet/bank'))),
+            Expanded(
+              child: SecondaryButton(label: 'Bank details', onPressed: () => context.push('/wallet/bank')),
+            ),
             const SizedBox(width: Space.m),
-            Expanded(child: SecondaryButton(label: 'History', onPressed: () => context.push('/wallet/history'))),
+            Expanded(
+              child: SecondaryButton(label: 'History', onPressed: () => context.push('/wallet/history')),
+            ),
           ],
         ),
         const SectionTitle('Reward breakdown'),
@@ -210,7 +218,10 @@ class _BreakdownRow extends StatelessWidget {
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [Text(label, style: AppType.label), Text(detail, style: AppType.caption)],
+            children: [
+              Text(label, style: AppType.label),
+              Text(detail, style: AppType.caption),
+            ],
           ),
         ),
         Amount(paise, style: AppType.label.copyWith(color: paise > 0 ? AppColors.goldBright : AppColors.textMuted)),
@@ -246,7 +257,10 @@ class _EntryTile extends StatelessWidget {
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: [Text(title, style: AppType.label), Text(formatIstDateTime(entry.createdAt), style: AppType.caption)],
+                children: [
+                  Text(title, style: AppType.label),
+                  Text(formatIstDateTime(entry.createdAt), style: AppType.caption),
+                ],
               ),
             ),
             Text(

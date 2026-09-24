@@ -52,7 +52,10 @@ class PrimaryButton extends StatelessWidget {
                         : Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              if (icon != null) ...[Icon(icon, color: AppColors.ink, size: 20), const SizedBox(width: Space.s)],
+                              if (icon != null) ...[
+                                Icon(icon, color: AppColors.ink, size: 20),
+                                const SizedBox(width: Space.s),
+                              ],
                               Flexible(
                                 child: Text(
                                   label,

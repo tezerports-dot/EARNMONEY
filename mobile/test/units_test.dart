@@ -126,7 +126,10 @@ void main() {
     test('system states win', () {
       expect(decide(config: const AsyncError(OfflineException(), StackTrace.empty)), '/offline');
       expect(decide(config: const AsyncError(MaintenanceException(null, null), StackTrace.empty)), '/maintenance');
-      expect(decide(config: AsyncData(ConfigState(PublicConfig.fromJson(configJson(maintenance: true)), Duration.zero))), '/maintenance');
+      expect(
+        decide(config: AsyncData(ConfigState(PublicConfig.fromJson(configJson(maintenance: true)), Duration.zero))),
+        '/maintenance',
+      );
       expect(decide(version: '0.9.0'), '/upgrade');
     });
 

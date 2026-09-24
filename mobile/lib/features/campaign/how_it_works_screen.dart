@@ -19,7 +19,11 @@ class HowItWorksScreen extends ConsumerWidget {
     final cfg = ref.watch(configProvider).requireValue.config;
     final reward = formatPaise(cfg.level1RewardPaise);
     final steps = [
-      (Icons.person_add_alt_1_rounded, 'Create your account', 'Sign up with your mobile number and a password. It’s free.'),
+      (
+        Icons.person_add_alt_1_rounded,
+        'Create your account',
+        'Sign up with your mobile number and a password. It’s free.',
+      ),
       (
         Icons.verified_user_rounded,
         'Verify with Telegram',
@@ -102,10 +106,7 @@ class _TreeDiagram extends StatelessWidget {
           for (var i = 0; i < levels.length; i++) ...[
             Row(
               children: [
-                SizedBox(
-                  width: 96,
-                  child: Text(levels[i].$1, style: i == 0 ? AppType.label : AppType.bodySmall),
-                ),
+                SizedBox(width: 96, child: Text(levels[i].$1, style: i == 0 ? AppType.label : AppType.bodySmall)),
                 Expanded(
                   child: Wrap(
                     spacing: 6,

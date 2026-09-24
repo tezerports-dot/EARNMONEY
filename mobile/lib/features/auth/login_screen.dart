@@ -71,9 +71,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         _formError = switch (e.code) {
           'CAPTCHA_REQUIRED' => 'For your security, please answer the question below.',
           'CAPTCHA_INVALID' => null,
-          'RATE_LIMITED' => e.retryAfter == null
-              ? e.message
-              : 'Too many attempts. Try again in ${(e.retryAfter!.inMinutes + 1)} minutes.',
+          'RATE_LIMITED' =>
+            e.retryAfter == null
+                ? e.message
+                : 'Too many attempts. Try again in ${(e.retryAfter!.inMinutes + 1)} minutes.',
           _ => e.message,
         };
       });
@@ -111,10 +112,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           PhoneField(controller: _phone, errorText: _phoneError),
           const FieldGap(),
           PasswordField(controller: _password, errorText: _passwordError, onSubmitted: (_) => _submit()),
-          if (_needsCaptcha) ...[
-            const FieldGap(),
-            CaptchaField(controller: _captcha, errorText: _captchaError),
-          ],
+          if (_needsCaptcha) ...[const FieldGap(), CaptchaField(controller: _captcha, errorText: _captchaError)],
           if (_formError != null) ...[
             const SizedBox(height: Space.l),
             Semantics(
@@ -139,7 +137,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               onPressed: () => showMessage(context, 'Contact support from the Support page to reset your password.'),
             ),
           ),
-          Center(child: LinkButton(label: 'Support', onPressed: () => context.push('/support'))),
+          Center(
+            child: LinkButton(label: 'Support', onPressed: () => context.push('/support')),
+          ),
         ],
       ),
     );

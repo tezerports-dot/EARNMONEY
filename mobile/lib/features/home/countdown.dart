@@ -64,7 +64,10 @@ class _CountdownCardState extends ConsumerState<CountdownCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.title.toUpperCase(), style: AppType.caption.copyWith(color: AppColors.goldBright, letterSpacing: 1.2)),
+            Text(
+              widget.title.toUpperCase(),
+              style: AppType.caption.copyWith(color: AppColors.goldBright, letterSpacing: 1.2),
+            ),
             const SizedBox(height: Space.m),
             if (parts.isZero)
               Text(widget.doneText, style: AppType.headline)

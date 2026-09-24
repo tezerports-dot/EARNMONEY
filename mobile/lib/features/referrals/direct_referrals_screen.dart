@@ -33,7 +33,10 @@ class DirectReferralsScreen extends ConsumerWidget {
           emptyMessage: 'When a friend signs up with your code, they appear here.',
           itemBuilder: (r) => Padding(
             padding: const EdgeInsets.only(bottom: Space.s),
-            child: GlassCard(padding: const EdgeInsets.symmetric(horizontal: Space.l, vertical: Space.s), child: DirectReferralTile(referral: r)),
+            child: GlassCard(
+              padding: const EdgeInsets.symmetric(horizontal: Space.l, vertical: Space.s),
+              child: DirectReferralTile(referral: r),
+            ),
           ),
         ),
       ),

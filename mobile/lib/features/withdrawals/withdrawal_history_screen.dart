@@ -41,7 +41,10 @@ class WithdrawalHistoryScreen extends ConsumerWidget {
                       ],
                     ),
                     const SizedBox(height: Space.s),
-                    Text('To ${w.bankAccountMasked} · requested ${formatIstDateTime(w.requestedAt)}', style: AppType.caption),
+                    Text(
+                      'To ${w.bankAccountMasked} · requested ${formatIstDateTime(w.requestedAt)}',
+                      style: AppType.caption,
+                    ),
                     Text('Reference ${w.id}', style: AppType.caption),
                     if (w.status == WithdrawalStatus.paid && w.bankReference != null)
                       Text(

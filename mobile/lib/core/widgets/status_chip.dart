@@ -34,7 +34,9 @@ class StatusChip extends StatelessWidget {
         children: [
           Icon(icon, size: 16, color: color),
           const SizedBox(width: 6),
-          Flexible(child: Text(label, style: AppType.caption.copyWith(color: color))),
+          Flexible(
+            child: Text(label, style: AppType.caption.copyWith(color: color)),
+          ),
         ],
       ),
     );

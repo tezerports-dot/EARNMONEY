@@ -79,10 +79,7 @@ class CaptchaField extends ConsumerWidget {
               if (controller.loading)
                 const LinearProgressIndicator()
               else if (captcha == null)
-                Text(
-                  controller.error == null ? 'Loading…' : errorMessage(controller.error!),
-                  style: AppType.bodySmall,
-                )
+                Text(controller.error == null ? 'Loading…' : errorMessage(controller.error!), style: AppType.bodySmall)
               else
                 Row(
                   children: [

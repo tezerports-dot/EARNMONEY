@@ -103,10 +103,8 @@ class LegalScreen extends ConsumerWidget {
         AsyncBody<String>(
           value: text,
           onRetry: () => ref.invalidate(_legalText(document)),
-          data: (raw) => Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: renderSimpleMarkdown(fillLegal(raw, cfg)),
-          ),
+          data: (raw) =>
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: renderSimpleMarkdown(fillLegal(raw, cfg))),
         ),
       ],
     );
@@ -150,7 +148,10 @@ class RulesScreen extends ConsumerWidget {
     return AppScreen(
       title: 'Reward rules',
       children: [
-        Text('Run by ${cfg.companyName}. These figures come from our server and are always current.', style: AppType.body),
+        Text(
+          'Run by ${cfg.companyName}. These figures come from our server and are always current.',
+          style: AppType.body,
+        ),
         const SizedBox(height: Space.xl),
         rule(Icons.money_off_rounded, 'Free to join', 'You never pay anything to join, earn or withdraw.'),
         rule(
@@ -201,7 +202,11 @@ class SupportScreen extends ConsumerWidget {
         padding: const EdgeInsets.all(Space.l),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [Text(q, style: AppType.label), const SizedBox(height: Space.xs), Text(a, style: AppType.bodySmall)],
+          children: [
+            Text(q, style: AppType.label),
+            const SizedBox(height: Space.xs),
+            Text(a, style: AppType.bodySmall),
+          ],
         ),
       ),
     );
@@ -224,12 +229,18 @@ class SupportScreen extends ConsumerWidget {
           'Telegram says my number doesn’t match',
           'Use the Telegram account registered to the same number you signed up with. You can get a new link in the app.',
         ),
-        faq('When can I withdraw?', 'From ${formatIstDate(cfg.campaign.payoutOpensAt)}, to a bank account in your name.'),
+        faq(
+          'When can I withdraw?',
+          'From ${formatIstDate(cfg.campaign.payoutOpensAt)}, to a bank account in your name.',
+        ),
         faq(
           'Will anyone ask me to pay to receive my rewards?',
           'No. ${cfg.companyName} never asks for fees, UPI PINs or OTPs. If someone does, it’s a scam: don’t pay.',
         ),
-        faq('I forgot my password', support == null ? 'Contact support to reset it.' : 'Contact support above to reset it.'),
+        faq(
+          'I forgot my password',
+          support == null ? 'Contact support to reset it.' : 'Contact support above to reset it.',
+        ),
       ],
     );
   }

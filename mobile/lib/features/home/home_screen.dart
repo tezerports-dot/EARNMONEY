@@ -107,7 +107,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 value: revealed ? cfg.campaign.brandName! : formatIstDayMonth(cfg.campaign.brandRevealAt),
               ),
               const Divider(height: Space.xxl),
-              _DateRow(icon: Icons.rocket_launch_rounded, label: 'Launch', value: formatIstDayMonth(cfg.campaign.launchAt)),
+              _DateRow(
+                icon: Icons.rocket_launch_rounded,
+                label: 'Launch',
+                value: formatIstDayMonth(cfg.campaign.launchAt),
+              ),
               const Divider(height: Space.xxl),
               _DateRow(
                 icon: Icons.account_balance_wallet_rounded,
@@ -148,9 +152,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             semanticLabel: 'Open wallet',
             child: Row(
               children: [
-                Expanded(child: _Stat(label: 'Earned', child: AnimatedCount(value: d.totalEarnedPaise, money: true, style: AppType.title))),
-                Expanded(child: _Stat(label: 'Friends verified', child: AnimatedCount(value: d.level1Count, style: AppType.title))),
-                Expanded(child: _Stat(label: 'Still verifying', child: AnimatedCount(value: d.level1PendingCount, style: AppType.title))),
+                Expanded(
+                  child: _Stat(
+                    label: 'Earned',
+                    child: AnimatedCount(value: d.totalEarnedPaise, money: true, style: AppType.title),
+                  ),
+                ),
+                Expanded(
+                  child: _Stat(
+                    label: 'Friends verified',
+                    child: AnimatedCount(value: d.level1Count, style: AppType.title),
+                  ),
+                ),
+                Expanded(
+                  child: _Stat(
+                    label: 'Still verifying',
+                    child: AnimatedCount(value: d.level1PendingCount, style: AppType.title),
+                  ),
+                ),
               ],
             ),
           ),
@@ -277,7 +296,9 @@ class _DateRow extends StatelessWidget {
         const SizedBox(width: Space.m),
         Expanded(child: Text(label, style: AppType.bodySmall)),
         const SizedBox(width: Space.s),
-        Flexible(child: Text(value, style: AppType.label, textAlign: TextAlign.right)),
+        Flexible(
+          child: Text(value, style: AppType.label, textAlign: TextAlign.right),
+        ),
       ],
     ),
   );

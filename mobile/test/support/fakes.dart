@@ -186,7 +186,12 @@ class FakeApi implements FutureFashionApi {
   }
 
   @override
-  Future<AuthResult> login({required String phone, required String password, String? captchaId, String? captchaAnswer}) async {
+  Future<AuthResult> login({
+    required String phone,
+    required String password,
+    String? captchaId,
+    String? captchaAnswer,
+  }) async {
     calls.add('login:$phone:${captchaId ?? '-'}');
     if (loginError != null) throw loginError!;
     return AuthResult(meResponse, Tokens.fromJson(tokensJson()));

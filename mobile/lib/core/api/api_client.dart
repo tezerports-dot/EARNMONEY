@@ -161,7 +161,9 @@ class ApiClient {
     final data = response?.data;
     final error = data is Map<String, Object?> ? data['error'] : null;
     if (error is! Map<String, Object?>) {
-      return status >= 500 ? ServerRejection(status: status, code: 'SERVER_ERROR', message: const UnexpectedException().userMessage) : const UnexpectedException();
+      return status >= 500
+          ? ServerRejection(status: status, code: 'SERVER_ERROR', message: const UnexpectedException().userMessage)
+          : const UnexpectedException();
     }
     final code = error['code'] is String ? error['code']! as String : 'ERROR';
     final message = error['message'] is String ? error['message']! as String : const UnexpectedException().userMessage;

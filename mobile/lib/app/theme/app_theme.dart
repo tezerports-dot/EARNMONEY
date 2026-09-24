@@ -87,9 +87,8 @@ abstract final class AppTheme {
           ),
         ),
         iconTheme: WidgetStateProperty.resolveWith(
-          (states) => IconThemeData(
-            color: states.contains(WidgetState.selected) ? AppColors.goldBright : AppColors.textMuted,
-          ),
+          (states) =>
+              IconThemeData(color: states.contains(WidgetState.selected) ? AppColors.goldBright : AppColors.textMuted),
         ),
       ),
       dividerTheme: const DividerThemeData(color: AppColors.line, thickness: 1, space: 1),

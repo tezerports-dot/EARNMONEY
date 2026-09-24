@@ -41,9 +41,8 @@ class _GlowPainter extends CustomPainter {
         center,
         radius,
         Paint()
-          ..shader = RadialGradient(
-            colors: [color, color.withValues(alpha: 0)],
-          ).createShader(Rect.fromCircle(center: center, radius: radius)),
+          ..shader = RadialGradient(colors: [color, color.withValues(alpha: 0)])
+              .createShader(Rect.fromCircle(center: center, radius: radius)),
       );
     }
 

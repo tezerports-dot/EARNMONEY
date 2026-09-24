@@ -116,7 +116,11 @@ void main() {
 
   testWidgets('login asks for the check after repeated failures', (tester) async {
     final env = TestEnv();
-    env.api.loginError = const ServerRejection(status: 400, code: 'CAPTCHA_REQUIRED', message: 'Please solve the check.');
+    env.api.loginError = const ServerRejection(
+      status: 400,
+      code: 'CAPTCHA_REQUIRED',
+      message: 'Please solve the check.',
+    );
     await pumpApp(tester, env);
     await tester.enterText(find.widgetWithText(TextField, 'Mobile number'), '9876543210');
     await tester.enterText(find.widgetWithText(TextField, 'Password'), 'whatever-1');
@@ -154,7 +158,10 @@ void main() {
     await pumpApp(tester, env);
     await tapText(tester, 'Wallet');
     expect(find.text('₹2,400'), findsWidgets);
-    expect(await reveal(tester, find.textContaining('Rewards become withdrawable on 31 December 2026')), findsOneWidget);
+    expect(
+      await reveal(tester, find.textContaining('Rewards become withdrawable on 31 December 2026')),
+      findsOneWidget,
+    );
     await reveal(tester, find.widgetWithText(PrimaryButton, 'Withdraw'));
     expect(tester.widget<PrimaryButton>(find.widgetWithText(PrimaryButton, 'Withdraw')).onPressed, isNull);
     await finish(tester);

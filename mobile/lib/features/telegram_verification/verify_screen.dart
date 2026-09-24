@@ -158,16 +158,14 @@ class _VerifyScreenState extends ConsumerState<VerifyScreen> with WidgetsBinding
     return AppScreen(
       showBack: false,
       onRefresh: _check,
-      actions: [
-        TextButton(
-          onPressed: () => ref.read(sessionProvider.notifier).logout(),
-          child: const Text('Log out'),
-        ),
-      ],
+      actions: [TextButton(onPressed: () => ref.read(sessionProvider.notifier).logout(), child: const Text('Log out'))],
       children: [
         Center(child: Illustrations.shield(size: 140)),
         const SizedBox(height: Space.xl),
-        Semantics(header: true, child: const Text('Verify with Telegram', style: AppType.headline, textAlign: TextAlign.center)),
+        Semantics(
+          header: true,
+          child: const Text('Verify with Telegram', style: AppType.headline, textAlign: TextAlign.center),
+        ),
         const SizedBox(height: Space.s),
         Text(
           'This proves $phoneMasked is really yours. Your account unlocks when it’s done.',
@@ -181,7 +179,9 @@ class _VerifyScreenState extends ConsumerState<VerifyScreen> with WidgetsBinding
           _Step(
             number: 1,
             title: 'Open our verification bot',
-            body: session == null ? 'Preparing your personal link…' : 'Tap “Open Telegram” below. It opens @${session.botUsername}.',
+            body: session == null
+                ? 'Preparing your personal link…'
+                : 'Tap “Open Telegram” below. It opens @${session.botUsername}.',
           ),
           _Step(
             number: 2,
@@ -220,16 +220,22 @@ class _VerifyScreenState extends ConsumerState<VerifyScreen> with WidgetsBinding
                 children: [
                   const Icon(Icons.info_outline_rounded, color: AppColors.warning),
                   const SizedBox(width: Space.m),
-                  Expanded(child: Semantics(liveRegion: true, child: Text(issue, style: AppType.bodySmall))),
+                  Expanded(
+                    child: Semantics(liveRegion: true, child: Text(issue, style: AppType.bodySmall)),
+                  ),
                 ],
               ),
             ),
             const SizedBox(height: Space.l),
           ],
           if (waiting && issue == null)
-            const Center(child: StatusChip(label: 'Waiting for Telegram…', tone: StatusTone.pending)),
+            const Center(
+              child: StatusChip(label: 'Waiting for Telegram…', tone: StatusTone.pending),
+            ),
           if (session?.status == VerificationStatus.expired)
-            const Center(child: StatusChip(label: 'This link expired', tone: StatusTone.danger)),
+            const Center(
+              child: StatusChip(label: 'This link expired', tone: StatusTone.danger),
+            ),
           const SizedBox(height: Space.xl),
           if (needsNewLink)
             PrimaryButton(label: 'Get a new link', icon: Icons.refresh_rounded, loading: _busy, onPressed: _open)
