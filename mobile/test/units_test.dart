@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:app_links/app_links.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -73,6 +75,15 @@ void main() {
       expect(referralCodeFromUri(Uri.parse('futurefashion://r/7Q2K9MXA')), '7Q2K9MXA');
       expect(referralCodeFromUri(Uri.parse('https://dev.futurefashion.example/r/7q2k9mxa')), '7Q2K9MXA');
       expect(referralCodeFromUri(Uri.parse('https://evil.example/r/7Q2K9MXA')), isNull);
+    });
+
+    test('release builds take links from their own API host', () {
+      // The server builds referral links from its public URL, and the app only
+      // accepts links on WEB_HOST, so the two must be the same host.
+      for (final name in ['staging', 'prod']) {
+        final config = jsonDecode(File('config/$name.json').readAsStringSync()) as Map<String, Object?>;
+        expect(Uri.parse(config['API_BASE_URL']! as String).host, config['WEB_HOST'], reason: 'config/$name.json');
+      }
     });
 
     test('links that open the app are remembered for signup', () async {
