@@ -230,3 +230,14 @@ async def test_users_only_see_their_own_money(client, telegram):
     await helpers.refresh(client, b)
     direct = (await client.get("/v1/referrals/direct", headers=auth(b["tokens"]))).json()["items"]
     assert direct == []
+
+
+async def test_auth_is_checked_before_the_idempotency_header(client):
+    """Security probe: an unauthenticated POST is 401, not a 400 about a missing
+    Idempotency-Key. Auth runs before request validation, so the endpoint's
+    requirements aren't revealed to anyone who isn't logged in."""
+    for path, body in [("/v1/bank-details", BANK), ("/v1/withdrawals", {"amount_paise": 20000})]:
+        # No Authorization header, and no Idempotency-Key either.
+        r = await client.post(path, json=body)
+        assert r.status_code == 401, (path, r.status_code, r.text)
+        assert r.json()["error"]["code"] == "UNAUTHENTICATED"

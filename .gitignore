@@ -44,3 +44,6 @@ dump.rdb
 
 # End-to-end run logs
 e2e/.run/
+
+# Security probe run logs
+security/.run/

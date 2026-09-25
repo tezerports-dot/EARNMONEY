@@ -256,8 +256,8 @@ async def get_bank(ctx: Auth = Depends(verified), db: AsyncSession = Depends(get
 @router.post("/bank-details")
 async def save_bank(
     body: BankBody,
-    key: str = Depends(idempotency_key),
     ctx: Auth = Depends(verified),
+    key: str = Depends(idempotency_key),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     scope = f"bank:{ctx.user.id}"
@@ -300,8 +300,8 @@ async def list_withdrawals(
 @router.post("/withdrawals")
 async def create_withdrawal(
     body: WithdrawalBody,
-    key: str = Depends(idempotency_key),
     ctx: Auth = Depends(verified),
+    key: str = Depends(idempotency_key),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     scope = f"withdrawal:{ctx.user.id}"

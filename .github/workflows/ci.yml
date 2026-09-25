@@ -153,6 +153,13 @@ jobs:
         env:
           FF_E2E_DATABASE_URL: postgresql+asyncpg://ff:ff_ci_only@127.0.0.1:5432/ff_e2e
         run: e2e/run.sh
+      - name: Security probe (auth, IDOR, injection, CSRF, replay, headers)
+        env:
+          PGPASSWORD: ff_ci_only
+          FF_SEC_DATABASE_URL: postgresql+asyncpg://ff:ff_ci_only@127.0.0.1:5432/ff_sec
+        run: |
+          createdb -h 127.0.0.1 -U ff ff_sec
+          security/run.sh
       - name: Server logs
         if: failure()
-        run: tail -n 200 e2e/.run/*.log
+        run: tail -n 200 e2e/.run/*.log security/.run/*.log
