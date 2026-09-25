@@ -41,3 +41,6 @@ mobile/ios/.symlinks/
 
 # Local Redis snapshots
 dump.rdb
+
+# End-to-end run logs
+e2e/.run/
