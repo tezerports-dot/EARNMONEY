@@ -8,6 +8,7 @@ import '../../app/theme/spacing.dart';
 import '../../app/theme/typography.dart';
 import '../../core/api/models.dart';
 import '../../core/config/config_controller.dart';
+import '../../core/config/support_contact.dart';
 import '../../core/formatters/dates.dart';
 import '../../core/formatters/inr.dart';
 import '../../core/widgets/buttons.dart';
@@ -195,7 +196,7 @@ class SupportScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final cfg = ref.watch(configProvider).requireValue.config;
-    final support = cfg.supportUrl;
+    final contact = supportContact(cfg);
     Widget faq(String q, String a) => Padding(
       padding: const EdgeInsets.only(bottom: Space.m),
       child: GlassCard(
@@ -213,12 +214,16 @@ class SupportScreen extends ConsumerWidget {
     return AppScreen(
       title: 'Support',
       children: [
-        if (support != null) ...[
+        if (contact != null) ...[
           PrimaryButton(
             label: 'Contact support',
             icon: Icons.support_agent_rounded,
-            onPressed: () => launchUrl(Uri.parse(support), mode: LaunchMode.externalApplication),
+            onPressed: () => launchUrl(contact, mode: LaunchMode.externalApplication),
           ),
+          if (cfg.supportEmail case final email?) ...[
+            const SizedBox(height: Space.s),
+            SelectableText(email, style: AppType.bodySmall, textAlign: TextAlign.center),
+          ],
           const SizedBox(height: Space.xl),
         ],
         faq(
@@ -239,7 +244,9 @@ class SupportScreen extends ConsumerWidget {
         ),
         faq(
           'I forgot my password',
-          support == null ? 'Contact support to reset it.' : 'Contact support above to reset it.',
+          contact == null
+              ? 'Support contact details will appear here soon. Your account and rewards stay safe meanwhile.'
+              : 'Contact support above to reset it.',
         ),
       ],
     );

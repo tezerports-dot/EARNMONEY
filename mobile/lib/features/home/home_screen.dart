@@ -64,7 +64,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       onRefresh: _refresh,
       children: [
         const SizedBox(height: Space.m),
-        _Header(dashboard: dashboard.value),
+        _Header(companyName: cfg.companyName, dashboard: dashboard.value),
         if (cfg.announcement case final a?) ...[const SizedBox(height: Space.l), _AnnouncementBanner(a)],
         const SizedBox(height: Space.xl),
         EntranceFade(
@@ -184,8 +184,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.dashboard});
+  const _Header({required this.companyName, required this.dashboard});
 
+  final String companyName;
   final Dashboard? dashboard;
 
   @override
@@ -193,12 +194,12 @@ class _Header extends StatelessWidget {
     final code = dashboard?.referralCode;
     return Row(
       children: [
-        const Expanded(
+        Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Welcome', style: AppType.caption),
-              Text('Future Fashion', style: AppType.title),
+              const Text('Welcome', style: AppType.caption),
+              Text(companyName, style: AppType.title),
             ],
           ),
         ),

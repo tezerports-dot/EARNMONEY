@@ -8,6 +8,7 @@ import '../../app/theme/typography.dart';
 import '../../core/api/api_exception.dart';
 import '../../core/auth/session_controller.dart';
 import '../../core/config/config_controller.dart';
+import '../../core/config/support_contact.dart';
 import '../../core/formatters/dates.dart';
 import '../../core/widgets/app_background.dart';
 import '../../core/widgets/buttons.dart';
@@ -152,16 +153,17 @@ class SuspendedScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final support = ref.watch(configProvider).value?.config.supportUrl;
+    final cfg = ref.watch(configProvider).value?.config;
+    final contact = cfg == null ? null : supportContact(cfg);
     return _SystemPage(
       art: Illustrations.shield(size: 140),
       title: 'Account suspended',
       message: 'This account has been suspended. If you think this is a mistake, contact support.',
       actions: [
-        if (support != null)
+        if (contact != null)
           PrimaryButton(
             label: 'Contact support',
-            onPressed: () => launchUrl(Uri.parse(support), mode: LaunchMode.externalApplication),
+            onPressed: () => launchUrl(contact, mode: LaunchMode.externalApplication),
           ),
         SecondaryButton(
           label: 'Log out',

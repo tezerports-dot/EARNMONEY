@@ -120,6 +120,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                       label: last ? 'Create account' : 'Next',
                       onPressed: last
                           ? () => _finish('/signup')
+                          : motion.reduced
+                          // Page animations can't take a zero duration: jump instead.
+                          ? () => _pages.jumpToPage(_index + 1)
                           : () => _pages.nextPage(duration: motion.transition, curve: Motion.curve),
                     ),
                     const SizedBox(height: Space.s),

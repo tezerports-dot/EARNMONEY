@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:future_fashion/app/app.dart';
@@ -24,11 +25,17 @@ Json configJson({
   String minVersion = '1.0.0',
   bool signupsOpen = true,
   bool adsOn = false,
+  String? legalName,
+  String? supportEmail,
+  String? supportUrl,
+  String? termsUrl,
+  String? brandName,
+  Json? announcement,
 }) => {
   'server_now': serverNow,
   'company_name': 'Future Fashion',
-  'company_legal_name': null,
-  'support_email': null,
+  'company_legal_name': legalName,
+  'support_email': supportEmail,
   'min_app_version': minVersion,
   'apk_download_url': 'https://futurefashion.test/download',
   'maintenance': {'active': maintenance, 'message': maintenance ? 'Back at 6 pm' : null, 'until': null},
@@ -39,7 +46,7 @@ Json configJson({
     'brand_reveal_at': '2026-12-20T18:30:00Z',
     'launch_at': '2026-12-30T18:30:00Z',
     'payout_opens_at': '2026-12-30T18:30:00Z',
-    'brand_name': null,
+    'brand_name': brandName,
     'signups_open': signupsOpen,
     'rewards_open': true,
   },
@@ -54,14 +61,14 @@ Json configJson({
   },
   'membership': {'verified_count': verifiedCount, 'capacity': 50000000},
   'promotion': {'allocation_paise': null},
-  'announcement': null,
+  'announcement': announcement,
   'ads': {
     'banner_enabled': adsOn,
     'interstitial_enabled': adsOn,
     'rewarded_enabled': false,
     'min_interstitial_interval_seconds': 300,
   },
-  'links': {'terms_url': null, 'privacy_url': null, 'support_url': null},
+  'links': {'terms_url': termsUrl, 'privacy_url': null, 'support_url': supportUrl},
 };
 
 Json meJson({String status = 'ACTIVE'}) => {
@@ -120,11 +127,81 @@ Json summaryJson() => {
   'level_1_pending_count': 3,
 };
 
+Json dashboardJson({int earned = 240000, int verified = 12, int pending = 3}) => {
+  'user': meJson(),
+  'wallet': {'total_earned_paise': earned, 'pending_paise': earned, 'available_paise': 0},
+  'referrals': {'level_1_count': verified, 'level_1_pending_count': pending},
+  'share': {'referral_code': '7Q2K9MXA', 'referral_link': 'https://futurefashion.test/r/7Q2K9MXA'},
+};
+
+DirectReferral directReferral(String id, String status) => DirectReferral.fromJson({
+  'public_id': id,
+  'phone_masked': '98XXXXXX21',
+  'status': status,
+  'joined_at': '2026-09-20T09:00:00Z',
+  'verified_at': status == 'VERIFIED' ? '2026-09-20T09:04:00Z' : null,
+  'reward_paise': status == 'VERIFIED' ? 20000 : 0,
+});
+
+Withdrawal withdrawal(WithdrawalStatus status, {String? reference, String? reason}) => Withdrawal(
+  id: 'WD-3JQ9TEST0${status.index}',
+  amountPaise: 40000,
+  status: status,
+  bankAccountMasked: 'XXXX 4821',
+  requestedAt: DateTime.utc(2026, 12, 31, 6),
+  paidAt: status == WithdrawalStatus.paid ? DateTime.utc(2027, 1, 2, 6) : null,
+  bankReference: reference,
+  failureReason: reason,
+);
+
+/// Records URLs the app opens and what it copies, instead of leaving the test.
+class DeviceRecorder {
+  final opened = <String>[];
+  String? clipboard;
+
+  void install() {
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(const MethodChannel('plugins.flutter.io/url_launcher'), (call) async {
+      if (call.method == 'launch') opened.add((call.arguments as Map<Object?, Object?>)['url']! as String);
+      return true;
+    });
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') clipboard = (call.arguments as Map<Object?, Object?>)['text'] as String?;
+      if (call.method == 'Clipboard.getData') return {'text': clipboard};
+      return null;
+    });
+  }
+
+  void uninstall() {
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(const MethodChannel('plugins.flutter.io/url_launcher'), null);
+    messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+  }
+}
+
 /// A scripted server. Each method returns what the test set up, and every
 /// call is recorded so tests can assert what the app sent.
 class FakeApi implements FutureFashionApi {
   final calls = <String>[];
   final _ended = StreamController<void>.broadcast();
+
+  /// Endpoints that fail until the test removes them, by method name.
+  final failures = <String, ApiException>{};
+
+  /// While set, config() waits: the app stays on its splash screen.
+  Completer<void>? configGate;
+
+  Json summaryResponse = summaryJson();
+  Json dashboardResponse = dashboardJson();
+  List<DirectReferral> directItems = [directReferral('K3M9P2QA', 'VERIFIED')];
+  int directPageSize = 20;
+  List<Withdrawal> history = [];
+  int captchas = 0;
+
+  void _gate(String name) {
+    final failure = failures[name];
+    if (failure != null) throw failure;
+  }
 
   Object configResponse = configJson();
   Me meResponse = Me.fromJson(meJson());
@@ -157,6 +234,7 @@ class FakeApi implements FutureFashionApi {
   @override
   Future<PublicConfig> config() async {
     calls.add('config');
+    await configGate?.future;
     final value = configResponse;
     if (value is ApiException) throw value;
     return PublicConfig.fromJson(value as Json);
@@ -165,12 +243,15 @@ class FakeApi implements FutureFashionApi {
   @override
   Future<Captcha> captcha() async {
     calls.add('captcha');
-    return const Captcha(id: 'c_test', question: '7 + 8 = ?');
+    _gate('captcha');
+    captchas++;
+    return Captcha(id: 'c_test_$captchas', question: captchas.isOdd ? '7 + 8 = ?' : '9 − 4 = ?');
   }
 
   @override
   Future<bool> referralCodeValid(String code) async {
     calls.add('referralCodeValid:$code');
+    _gate('referralCodeValid');
     return code == 'K3M9P2QA';
   }
 
@@ -208,51 +289,45 @@ class FakeApi implements FutureFashionApi {
   @override
   Future<Me> me() async {
     calls.add('me');
+    _gate('me');
     return meResponse;
   }
 
   @override
   Future<VerificationSession> openVerification() async {
     calls.add('openVerification');
+    _gate('openVerification');
     return sessionResponse;
   }
 
   @override
   Future<VerificationSession> verificationStatus() async {
     calls.add('verificationStatus');
+    _gate('verificationStatus');
     return sessionResponse;
   }
 
   @override
   Future<Dashboard> dashboard() async {
     calls.add('dashboard');
-    return Dashboard.fromJson({
-      'user': meJson(),
-      'wallet': {'total_earned_paise': 240000, 'pending_paise': 240000, 'available_paise': 0},
-      'referrals': {'level_1_count': 12, 'level_1_pending_count': 3},
-      'share': {'referral_code': '7Q2K9MXA', 'referral_link': 'https://futurefashion.test/r/7Q2K9MXA'},
-    });
+    _gate('dashboard');
+    return Dashboard.fromJson(dashboardResponse);
   }
 
   @override
   Future<ReferralSummary> referralSummary() async {
     calls.add('referralSummary');
-    return ReferralSummary.fromJson(summaryJson());
+    _gate('referralSummary');
+    return ReferralSummary.fromJson(summaryResponse);
   }
 
   @override
   Future<Paged<DirectReferral>> directReferrals({String? cursor, int limit = 20}) async {
     calls.add('directReferrals');
-    return Paged([
-      DirectReferral.fromJson({
-        'public_id': 'K3M9P2QA',
-        'phone_masked': '98XXXXXX21',
-        'status': 'VERIFIED',
-        'joined_at': '2026-09-20T09:00:00Z',
-        'verified_at': '2026-09-20T09:04:00Z',
-        'reward_paise': 20000,
-      }),
-    ], null);
+    _gate('directReferrals');
+    final start = cursor == null ? 0 : int.parse(cursor);
+    final end = (start + directPageSize).clamp(0, directItems.length);
+    return Paged(directItems.sublist(start, end), end < directItems.length ? '$end' : null);
   }
 
   @override
@@ -265,12 +340,14 @@ class FakeApi implements FutureFashionApi {
   @override
   Future<Wallet> wallet() async {
     calls.add('wallet');
+    _gate('wallet');
     return walletResponse;
   }
 
   @override
   Future<BankDetails> bankDetails() async {
     calls.add('bankDetails');
+    _gate('bankDetails');
     return bankResponse;
   }
 
@@ -282,6 +359,7 @@ class FakeApi implements FutureFashionApi {
     required String idempotencyKey,
   }) async {
     calls.add('saveBank');
+    _gate('saveBank');
     bankResponse = BankDetails(
       saved: true,
       accountHolderName: accountHolderName,
@@ -292,7 +370,11 @@ class FakeApi implements FutureFashionApi {
   }
 
   @override
-  Future<Paged<Withdrawal>> withdrawals({String? cursor, int limit = 20}) async => const Paged([], null);
+  Future<Paged<Withdrawal>> withdrawals({String? cursor, int limit = 20}) async {
+    calls.add('withdrawals');
+    _gate('withdrawals');
+    return Paged(history, null);
+  }
 
   @override
   Future<Withdrawal> requestWithdrawal({required int amountPaise, required String idempotencyKey}) async {
