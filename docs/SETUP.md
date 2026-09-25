@@ -45,7 +45,7 @@ chmod 600 .env
 Edit `.env`:
 
 1. Set `DOMAIN` and `FF_PUBLIC_BASE_URL` to your domain (`https://` for the second).
-2. Choose a long random database password. Put it in **both** `POSTGRES_PASSWORD` and `FF_DATABASE_URL`.
+2. Choose two long random database passwords: one for `POSTGRES_PASSWORD` (also put it in the owner's `FF_DATABASE_URL`), and one for `APP_DB_PASSWORD`. The app connects as a separate DML-only role; the owner is used only for migrations (see [SECURITY.md](../SECURITY.md)).
 3. Generate two **different** keys, one for `FF_DATA_ENCRYPTION_KEY` and one for `FF_HMAC_KEY`:
 
    ```bash
@@ -119,10 +119,11 @@ Campaign dates, rewards, bots, channels, maintenance mode, ads and legal details
 | Variable | Default | Meaning |
 |---|---|---|
 | `DOMAIN` | — | Domain Caddy serves and gets a certificate for (compose only). |
-| `POSTGRES_PASSWORD` | — | Database password (compose only). Must match `FF_DATABASE_URL`. |
+| `POSTGRES_PASSWORD` | — | Owner database password (compose only). Must match the owner's `FF_DATABASE_URL`. |
+| `APP_DB_USER` / `APP_DB_PASSWORD` | `futurefashion_app` / — | The DML-only role the API and worker connect as. The migrate step creates and refreshes it. |
 | `FF_ENV` | `dev` | `dev`, `test`, `staging` or `production`. Staging and production refuse the built-in development keys and plain `http`. |
 | `FF_PUBLIC_BASE_URL` | `http://localhost:8000` | Public address of this server. Used for referral links, Telegram webhooks and the APK download. |
-| `FF_DATABASE_URL` | local `ff_dev` | PostgreSQL connection (`postgresql+asyncpg://…`). |
+| `FF_DATABASE_URL` | local `ff_dev` | PostgreSQL connection (`postgresql+asyncpg://…`). In compose the owner uses this for migrations; the API and worker override it with the app role. |
 | `FF_DATABASE_POOL_SIZE` / `FF_DATABASE_MAX_OVERFLOW` | `10` / `20` | Database connections per process. |
 | `FF_REDIS_URL` | `redis://127.0.0.1:6379/0` | Redis connection. |
 | `FF_DATA_ENCRYPTION_KEY` | dev key | 32-byte base64 key. AES-256-GCM for bank numbers, bot tokens and admin 2FA secrets. |

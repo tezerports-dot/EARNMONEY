@@ -18,6 +18,8 @@ services:
     env_file: .env
     environment:
       FF_TRUST_PROXY_HEADERS: "true"
+      # Connect as the DML-only role, not the owner (docs/SECURITY.md).
+      FF_DATABASE_URL: postgresql+asyncpg://${APP_DB_USER:-futurefashion_app}:${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}@postgres:5432/futurefashion
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_started }
@@ -26,6 +28,8 @@ services:
     build: .
     restart: unless-stopped
     env_file: .env
+    environment:
+      FF_DATABASE_URL: postgresql+asyncpg://${APP_DB_USER:-futurefashion_app}:${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}@postgres:5432/futurefashion
     command: ["python", "-m", "app.cli", "worker"]
     depends_on:
       migrate: { condition: service_completed_successfully }
@@ -34,7 +38,12 @@ services:
   migrate:
     build: .
     env_file: .env
-    command: ["alembic", "upgrade", "head"]
+    environment:
+      # ensure-app-role runs as the owner (FF_DATABASE_URL from .env) and needs
+      # the app role's name and password to create/refresh it before migrating.
+      FF_APP_DB_USER: ${APP_DB_USER:-futurefashion_app}
+      FF_APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}
+    command: ["sh", "-c", "python -m app.cli ensure-app-role && alembic upgrade head"]
     depends_on:
       postgres: { condition: service_healthy }
 

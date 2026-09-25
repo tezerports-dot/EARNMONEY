@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://postgres@127.0.0.1:5432/ff_dev"
     database_pool_size: int = 10
     database_max_overflow: int = 20
+    # The app connects as this DML-only role in production (see docs/SECURITY.md).
+    # Left blank in dev/tests, where the connection in database_url is used as is.
+    app_db_user: str = "futurefashion_app"
+    app_db_password: str = ""
     redis_url: str = "redis://127.0.0.1:6379/0"
 
     # Public origin of this server, used for referral links (/r/{code}),
