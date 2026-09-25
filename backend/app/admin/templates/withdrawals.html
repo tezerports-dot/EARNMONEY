@@ -5,7 +5,7 @@
 <p class="inline">{% for s in ["REQUESTED", "PROCESSING", "PAID", "FAILED"] %}<a class="button {{ '' if s == status else 'secondary' }}" style="{{ '' if s == status else 'background:transparent;color:inherit;border:1px solid #2E2850' }}" href="/admin/withdrawals?status={{ s }}">{{ s.title() }}</a>{% endfor %}</p>
 {% if status == "REQUESTED" %}
 <form method="post" action="/admin/withdrawals/batch"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Create a payout batch from requested withdrawals</button></form>
-<p class="help">A batch moves requests to Processing. Download its file, pay it at the bank, then mark each row paid (with the UTR) or failed. Requests from users with an open <a class="ok" href="/admin/flags">risk flag</a> are held back until the flag is resolved.</p>
+<p class="help">A batch moves requests to Processing. Download its file, pay it at the bank, then mark each row paid (with the UTR) or failed. Requests from users with an open <a class="ok" href="/admin/flags">risk flag</a>, or a suspended account, are held back until the flag is resolved or the suspension lifted.</p>
 {% endif %}
 <table><tr><th>ID</th><th>User</th><th>Amount</th><th>Bank</th><th>Requested</th><th>{% if status == "PROCESSING" %}Result{% else %}Details{% endif %}</th></tr>
 {% for w, public_id in rows %}<tr>

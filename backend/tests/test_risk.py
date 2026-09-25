@@ -84,3 +84,27 @@ async def test_referral_burst_is_flagged_but_still_paid(client, telegram, monkey
     await helpers.refresh(client, a)
     wallet = (await client.get("/v1/wallet", headers=auth(a["tokens"]))).json()
     assert wallet["total_earned_paise"] == 3 * 20000  # a flag asks for a look; it takes nothing away
+
+
+async def test_suspended_users_withdrawals_are_held(client, telegram):
+    setup = await telegram_setup(telegram, channels=0)
+    await fund_pool()
+    a = await verified_user(client, setup)
+    await verified_user(client, setup, a["user"]["public_id"])
+    timeutil.freeze(PAYOUT_DAY)
+    await helpers.login(client, a)
+    h = auth(a["tokens"])
+    await client.post("/v1/bank-details", json=BANK, headers={**h, **idem()})
+    assert (await client.post("/v1/withdrawals", json={"amount_paise": 20000}, headers={**h, **idem()})).status_code == 201
+
+    async with db.sessionmaker()() as s, s.begin():
+        user = (await s.execute(select(User).where(User.public_id == a["user"]["public_id"]))).scalar_one()
+        user.status = "SUSPENDED"
+    async with db.sessionmaker()() as s, s.begin():
+        assert await withdrawals.create_batch(s, "admin:test") is None
+    async with db.sessionmaker()() as s, s.begin():
+        user = (await s.execute(select(User).where(User.public_id == a["user"]["public_id"]))).scalar_one()
+        user.status = "ACTIVE"
+    async with db.sessionmaker()() as s, s.begin():
+        batch = await withdrawals.create_batch(s, "admin:test")
+        assert batch is not None and batch.request_count == 1

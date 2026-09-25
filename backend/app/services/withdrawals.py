@@ -1,8 +1,9 @@
 """Withdrawals: requested by the user, paid or failed only by an admin.
 
 REQUESTED → PROCESSING (admin exports a batch) → PAID | FAILED
-FAILED returns the money to the user's available balance. A user with an open
-risk flag stays REQUESTED until an admin looks and resolves the flag.
+FAILED returns the money to the user's available balance. Requests from a user
+with an open risk flag, or a suspended user, stay REQUESTED until an admin
+resolves the flag or lifts the suspension.
 """
 
 from __future__ import annotations
@@ -137,13 +138,18 @@ async def history(db: AsyncSession, user: User, limit: int, cursor: str | None) 
 
 
 async def create_batch(db: AsyncSession, admin: str, limit: int = 1000) -> PayoutBatch | None:
-    """Batch the oldest requests, holding back anyone with an open risk flag."""
+    """Batch the oldest requests, holding back flagged and suspended users."""
     flagged = select(RiskFlag.user_id).where(RiskFlag.resolved_at.is_(None))
+    suspended = select(User.id).where(User.status == "SUSPENDED")
     requests = list(
         (
             await db.execute(
                 select(WithdrawalRequest)
-                .where(WithdrawalRequest.status == "REQUESTED", WithdrawalRequest.user_id.not_in(flagged))
+                .where(
+                    WithdrawalRequest.status == "REQUESTED",
+                    WithdrawalRequest.user_id.not_in(flagged),
+                    WithdrawalRequest.user_id.not_in(suspended),
+                )
                 .order_by(WithdrawalRequest.requested_at)
                 .limit(limit)
                 .with_for_update(skip_locked=True)
