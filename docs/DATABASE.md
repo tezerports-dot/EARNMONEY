@@ -24,7 +24,7 @@ PostgreSQL 16. Migrations live in `backend/migrations` (Alembic). This file expl
 ### Accounts and sessions
 
 **`users`**. `id` (internal only), `public_id` (8 characters, unique, also the referral code), `phone` (10 digits, unique, `CHECK ~ '^[6-9][0-9]{9}$'`), `password_hash` (Argon2id), `status` (`PENDING_VERIFICATION` | `ACTIVE` | `SUSPENDED`), `referrer_id` (nullable, the direct referrer), `telegram_user_id` (unique, set at verification), `pending_expires_at`, `created_at`, `verified_at`, `suspended_at`, `updated_at`.
-Indexes: `(referrer_id, created_at DESC, id DESC)` for the level-1 list, and `(pending_expires_at) WHERE status = 'PENDING_VERIFICATION'` for cleanup.
+Indexes: `(referrer_id, created_at DESC, id DESC)` for the level-1 list, `(pending_expires_at) WHERE status = 'PENDING_VERIFICATION'` for cleanup, and `(referrer_id, pending_expires_at) WHERE status = 'PENDING_VERIFICATION'` for the dashboard's count of friends still verifying (migration 0002).
 
 **`auth_sessions`**. One row per issued token pair. Columns: `user_id`, `family_id` (all rotations of one login), SHA-256 hashes of the access and refresh tokens (unique), their expiry times, `rotated_at`, `revoked_at`, `created_at`, `last_seen_at`, `user_agent`. Presenting a rotated refresh token revokes the whole family.
 
@@ -42,7 +42,7 @@ When a user signs up with a code, the server inserts one row for the referrer (l
 
 ### Money
 
-**`ledger_accounts`**. `kind`, `user_id`, `balance_paise`, `created_at`. `UNIQUE NULLS NOT DISTINCT (kind, user_id)`.
+**`ledger_accounts`**. `kind`, `user_id`, `balance_paise`, `created_at`. Two partial unique indexes: `(kind, user_id) WHERE user_id IS NOT NULL` (one account of each kind per user; wallet queries name the kind so they can use it) and `(kind) WHERE user_id IS NULL` (one of each system account).
 
 | Kind | Owner | Balance means |
 |---|---|---|
