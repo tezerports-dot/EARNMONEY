@@ -127,9 +127,9 @@ Json summaryJson() => {
   'level_1_pending_count': 3,
 };
 
-Json dashboardJson({int earned = 240000, int verified = 12, int pending = 3}) => {
+Json dashboardJson({int earned = 240000, int available = 0, int verified = 12, int pending = 3}) => {
   'user': meJson(),
-  'wallet': {'total_earned_paise': earned, 'pending_paise': earned, 'available_paise': 0},
+  'wallet': {'total_earned_paise': earned, 'pending_paise': earned - available, 'available_paise': available},
   'referrals': {'level_1_count': verified, 'level_1_pending_count': pending},
   'share': {'referral_code': '7Q2K9MXA', 'referral_link': 'https://futurefashion.test/r/7Q2K9MXA'},
 };

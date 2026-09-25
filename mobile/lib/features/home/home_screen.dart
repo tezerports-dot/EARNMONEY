@@ -21,6 +21,7 @@ import '../../core/widgets/screen.dart';
 import '../../core/widgets/state_views.dart';
 import '../../core/widgets/status_chip.dart';
 import 'countdown.dart';
+import 'income_card.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -66,6 +67,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         const SizedBox(height: Space.m),
         _Header(companyName: cfg.companyName, dashboard: dashboard.value),
         if (cfg.announcement case final a?) ...[const SizedBox(height: Space.l), _AnnouncementBanner(a)],
+        const SizedBox(height: Space.l),
+        IncomeCard(
+          dashboard: dashboard,
+          payoutOpensAt: cfg.campaign.payoutOpensAt,
+          payoutsOpen: !now.isBefore(cfg.campaign.payoutOpensAt),
+          rewardPerFriendPaise: cfg.level1RewardPaise,
+          onOpen: () => context.go('/wallet'),
+          onRetry: () => ref.invalidate(dashboardProvider),
+        ),
         const SizedBox(height: Space.xl),
         EntranceFade(
           child: Column(
@@ -152,12 +162,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             semanticLabel: 'Open wallet',
             child: Row(
               children: [
-                Expanded(
-                  child: _Stat(
-                    label: 'Earned',
-                    child: AnimatedCount(value: d.totalEarnedPaise, money: true, style: AppType.title),
-                  ),
-                ),
                 Expanded(
                   child: _Stat(
                     label: 'Friends verified',

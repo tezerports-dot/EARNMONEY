@@ -9,6 +9,7 @@ import 'package:future_fashion/app/router.dart';
 import 'package:future_fashion/core/api/api_exception.dart';
 import 'package:future_fashion/core/api/models.dart';
 import 'package:future_fashion/core/widgets/buttons.dart';
+import 'package:future_fashion/features/home/income_card.dart';
 import 'package:go_router/go_router.dart';
 
 import 'support/fakes.dart';
@@ -350,6 +351,58 @@ void main() {
       await back(tester);
       await tapText(tester, 'Friends verified');
       expect(here(tester), '/wallet');
+      await finish(tester);
+    });
+
+    testWidgets('Your income: the ledger total across all four levels, pending until the payout date', (tester) async {
+      await pumpApp(tester, TestEnv(signedIn: true));
+      final card = find.byType(IncomeCard);
+      Finder inCard(String text) => find.descendant(of: card, matching: find.text(text));
+      expect(inCard('YOUR INCOME'), findsOneWidget);
+      expect(inCard('₹2,400'), findsOneWidget);
+      expect(inCard('Total from all 4 referral levels'), findsOneWidget);
+      for (final pill in ['L1 ₹2,400', 'L2 ₹0', 'L3 ₹0', 'L4 ₹0']) {
+        expect(inCard(pill), findsOneWidget, reason: pill);
+      }
+      expect(inCard('Pending until 31 December 2026'), findsOneWidget);
+      await tap(tester, card);
+      expect(here(tester), '/wallet');
+      await finish(tester);
+    });
+
+    testWidgets('Your income after the payout date shows what can be withdrawn', (tester) async {
+      final env = TestEnv(signedIn: true)
+        ..api.configResponse = configJson(serverNow: '2026-12-31T06:00:00Z')
+        ..api.dashboardResponse = dashboardJson(earned: 240000, available: 240000);
+      await pumpApp(tester, env);
+      await tapText(tester, 'Continue'); // the launch celebration comes first
+      expect(
+        find.descendant(of: find.byType(IncomeCard), matching: find.text('₹2,400 available to withdraw')),
+        findsOneWidget,
+      );
+      await finish(tester);
+    });
+
+    testWidgets('Your income at zero invites friends instead of celebrating', (tester) async {
+      final env = TestEnv(signedIn: true)..api.dashboardResponse = dashboardJson(earned: 0, verified: 0, pending: 0);
+      await pumpApp(tester, env);
+      final card = find.byType(IncomeCard);
+      expect(find.descendant(of: card, matching: find.text('₹0')), findsOneWidget);
+      expect(
+        find.descendant(of: card, matching: find.text('Invite friends: you earn ₹200 for each one who verifies.')),
+        findsOneWidget,
+      );
+      await finish(tester);
+    });
+
+    testWidgets('Your income offers Try again when it can’t load', (tester) async {
+      final env = TestEnv(signedIn: true)..api.failures['dashboard'] = const OfflineException();
+      await pumpApp(tester, env);
+      final card = find.byType(IncomeCard);
+      expect(find.descendant(of: card, matching: find.text('Couldn’t load your income just now.')), findsOneWidget);
+      env.api.failures.remove('dashboard');
+      await tap(tester, find.descendant(of: card, matching: find.text('Try again')));
+      expect(find.descendant(of: card, matching: find.text('₹2,400')), findsOneWidget);
       await finish(tester);
     });
 
