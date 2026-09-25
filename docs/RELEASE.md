@@ -77,7 +77,25 @@ The `dev` and `staging` flavors install alongside the real app (`com.futurefashi
 
 1. Upload the APK to HTTPS storage. A Cloudflare R2 bucket with a custom domain works well: storage is cheap and downloads are free. Give each file a versioned name, such as `futurefashion-1.0.1.apk`.
 2. In the admin panel, **Settings → APK download URL**: paste the file's URL. `https://your-domain/download` now redirects there. The referral landing page and the app's share message use that link.
-3. Users also share the installed app itself: **Share App + Referral** sends the APK file together with their referral code and link. Where Android can't provide the file, it sends the download link instead.
+3. Users also share the installed app itself (next section). That needs no hosting at all.
+
+## How "Share App + Referral" works
+
+The button always sends the APK file itself, never a download link:
+
+1. The app copies its own installed APK into its cache. It needs no storage permission; it reads only its own package file.
+2. The sharer's referral code goes into the copy's APK Signing Block, as one extra entry (`mobile/android/app/src/main/kotlin/com/futurefashion/app/ApkReferral.kt`). Android's v2/v3 signatures don't cover extra entries there, and Android ignores entries it doesn't know. So the copy installs like the original, has the same signing certificate, and takes your future updates.
+3. Android's share sheet sends the file (WhatsApp, Telegram, Bluetooth, Nearby Share, Xender…) with a short message carrying the code and the referral link.
+4. On the friend's phone, the app reads the code from the APK it was installed from, on its first launch, and fills it in at signup. This works even when the file travelled without the message. The friend can see and change the code, and the server checks it like any typed code.
+
+If a phone can't attach the file (an app installed from a store in parts, or a full phone), the app says so and offers to send the referral link instead. It never swaps the file for a link on its own.
+
+`ApkReferralTest` checks all of this with Google's own APK verifier (`apksig`, the library behind `apksigner`). Check a real build the same way:
+
+```bash
+cd mobile/android
+./gradlew :app:testProdDebugUnitTest -PrealApk=$PWD/../build/app/outputs/flutter-apk/app-prod-release.apk
+```
 
 ## Forcing an update
 

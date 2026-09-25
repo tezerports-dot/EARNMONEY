@@ -12,6 +12,9 @@ import 'package:future_fashion/core/auth/token_store.dart';
 import 'package:future_fashion/core/providers.dart';
 import 'package:future_fashion/core/storage/prefs.dart';
 import 'package:future_fashion/features/ads/ads.dart';
+import 'package:future_fashion/features/apk_sharing/apk_share_service.dart';
+import 'package:future_fashion/features/apk_sharing/share_screen.dart';
+import 'package:share_plus/share_plus.dart';
 
 /// Test data shaped exactly like docs/API.md. Clearly fake: only tests use it.
 Json configJson({
@@ -331,9 +334,31 @@ class FakeAds implements AdsService {
   }
 }
 
+/// Records what the share screen asked Android to send.
+class FakeApkShare implements ApkShareService {
+  ApkUnavailable? problem; // set to make attaching the file fail
+  final sent = <String>[];
+
+  @override
+  Future<ShareResultStatus> shareAppAndReferral({
+    required String companyName,
+    required ShareInfo info,
+    required String appVersion,
+  }) async {
+    if (problem != null) throw problem!;
+    sent.add('apk-file:${info.referralCode}');
+    return ShareResultStatus.success;
+  }
+
+  @override
+  Future<void> shareLink({required String companyName, required ShareInfo info}) async =>
+      sent.add('link:${info.referralCode}');
+}
+
 class TestEnv {
-  TestEnv({FakeApi? api, this.ads, bool signedIn = false, bool onboardingSeen = true})
+  TestEnv({FakeApi? api, this.ads, FakeApkShare? apkShare, bool signedIn = false, bool onboardingSeen = true})
     : api = api ?? FakeApi(),
+      apkShare = apkShare ?? FakeApkShare(),
       tokens = MemoryTokenStore(),
       prefs = MemoryAppPrefs()..onboardingSeen = onboardingSeen {
     if (signedIn) tokens.tokens = Tokens.fromJson(tokensJson());
@@ -341,6 +366,7 @@ class TestEnv {
 
   final FakeApi api;
   final AdsService? ads;
+  final FakeApkShare apkShare;
   final MemoryTokenStore tokens;
   final MemoryAppPrefs prefs;
 
@@ -352,6 +378,7 @@ class TestEnv {
       prefsProvider.overrideWithValue(prefs),
       appVersionProvider.overrideWithValue('1.0.0'),
       if (ads != null) adsServiceProvider.overrideWithValue(ads!),
+      apkShareServiceProvider.overrideWithValue(apkShare),
     ],
     child: const FutureFashionApp(),
   );

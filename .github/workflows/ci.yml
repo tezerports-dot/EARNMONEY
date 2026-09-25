@@ -98,6 +98,9 @@ jobs:
         # No signing secrets here, so the APK is signed with a throwaway debug
         # key: good for testing, never for sharing (docs/RELEASE.md).
         run: flutter build apk --release --flavor prod --dart-define-from-file=config/prod.json
+      - name: A shared APK with a referral code still verifies (JVM tests, incl. this build)
+        working-directory: mobile/android
+        run: ./gradlew --no-daemon :app:testProdDebugUnitTest -PrealApk="$GITHUB_WORKSPACE/mobile/build/app/outputs/flutter-apk/app-prod-release.apk"
       - uses: actions/upload-artifact@v4
         with:
           name: future-fashion-prod-apk-TEST-SIGNED

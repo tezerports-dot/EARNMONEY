@@ -8,6 +8,7 @@ import 'app/env.dart';
 import 'core/api/api_client.dart';
 import 'core/api/future_fashion_api.dart';
 import 'core/auth/token_store.dart';
+import 'core/deep_links/install_referral.dart';
 import 'core/deep_links/referral_links.dart';
 import 'core/providers.dart';
 import 'core/storage/prefs.dart';
@@ -23,6 +24,8 @@ Future<void> main() async {
   final api = HttpFutureFashionApi(ApiClient(baseUrl: AppEnv.apiBaseUrl, appVersion: info.version, tokens: tokens));
   final ads = GoogleAdsService();
 
+  // A code built into the shared APK first; a link opened later replaces it.
+  await InstallReferral(prefs).load();
   await ReferralLinkListener(prefs).start();
   // Ads never block startup; they appear once consent and the SDK are ready.
   ads.initialize().ignore();

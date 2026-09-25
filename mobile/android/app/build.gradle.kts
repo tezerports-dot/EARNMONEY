@@ -82,6 +82,13 @@ android {
         }
     }
 
+    testOptions {
+        unitTests.all { test ->
+            // ./gradlew :app:testProdDebugUnitTest -PrealApk=… also checks a real build (ApkReferralTest).
+            (project.findProperty("realApk") as String?)?.let { test.systemProperty("ff.realApk", it) }
+        }
+    }
+
     buildTypes {
         release {
             signingConfig = if (releaseStoreFile != null) {
@@ -102,4 +109,9 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("com.android.tools.build:apksig:8.13.1")
 }

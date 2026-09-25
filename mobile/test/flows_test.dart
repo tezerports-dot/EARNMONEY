@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:future_fashion/core/api/api_exception.dart';
 import 'package:future_fashion/core/api/models.dart';
 import 'package:future_fashion/core/widgets/buttons.dart';
+import 'package:future_fashion/features/apk_sharing/apk_share_service.dart';
 
 import 'support/fakes.dart';
 
@@ -250,6 +251,28 @@ void main() {
     expect(ads.interstitialRequests, 1);
     expect(tester.takeException(), isNull);
     expect(find.text('Start Referring'), findsOneWidget); // back on Home, still usable
+    await finish(tester);
+  });
+
+  testWidgets('Share App + Referral sends the APK file; a link is only ever an explicit choice', (tester) async {
+    final env = TestEnv(signedIn: true);
+    await pumpApp(tester, env);
+    await tapText(tester, 'Start Referring');
+    expect(find.text('Sends the app file itself, with your referral code built in.'), findsOneWidget);
+
+    await tapText(tester, 'Share App + Referral');
+    expect(env.apkShare.sent, ['apk-file:7Q2K9MXA']);
+
+    // When this phone can't attach the file, the app says so and asks.
+    env.apkShare.problem = const ApkUnavailable(ApkUnavailableReason.splitInstall);
+    await tapText(tester, 'Share App + Referral');
+    expect(find.text('Couldn’t attach the app file'), findsOneWidget);
+    await tapText(tester, 'Not now');
+    expect(env.apkShare.sent, ['apk-file:7Q2K9MXA']); // nothing sent behind the user's back
+
+    await tapText(tester, 'Share App + Referral');
+    await tapText(tester, 'Share link instead');
+    expect(env.apkShare.sent, ['apk-file:7Q2K9MXA', 'link:7Q2K9MXA']);
     await finish(tester);
   });
 

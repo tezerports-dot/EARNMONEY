@@ -10,6 +10,10 @@ abstract interface class AppPrefs {
   Future<void> setPendingReferralCode(String? code);
   bool get launchCelebrated;
   Future<void> setLaunchCelebrated();
+
+  /// Whether the referral code built into the installed APK was read yet.
+  bool get installReferralChecked;
+  Future<void> setInstallReferralChecked();
 }
 
 class SharedAppPrefs implements AppPrefs {
@@ -48,6 +52,12 @@ class SharedAppPrefs implements AppPrefs {
 
   @override
   Future<void> setLaunchCelebrated() async => _prefs?.setBool('launch_celebrated', true);
+
+  @override
+  bool get installReferralChecked => _prefs?.getBool('install_referral_checked') ?? false;
+
+  @override
+  Future<void> setInstallReferralChecked() async => _prefs?.setBool('install_referral_checked', true);
 }
 
 class MemoryAppPrefs implements AppPrefs {
@@ -57,6 +67,8 @@ class MemoryAppPrefs implements AppPrefs {
   String? pendingReferralCode;
   @override
   bool launchCelebrated = false;
+  @override
+  bool installReferralChecked = false;
 
   @override
   Future<void> setOnboardingSeen() async => onboardingSeen = true;
@@ -66,4 +78,7 @@ class MemoryAppPrefs implements AppPrefs {
 
   @override
   Future<void> setLaunchCelebrated() async => launchCelebrated = true;
+
+  @override
+  Future<void> setInstallReferralChecked() async => installReferralChecked = true;
 }

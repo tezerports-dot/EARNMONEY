@@ -57,10 +57,32 @@ class _ShareScreenState extends ConsumerState<ShareScreen> {
       await ref
           .read(apkShareServiceProvider)
           .shareAppAndReferral(companyName: company, info: info, appVersion: ref.read(appVersionProvider));
+    } on ApkUnavailable catch (problem) {
+      if (mounted) await _offerLink(problem, info, company);
     } on Object {
-      if (mounted) showMessage(context, 'Sharing isn’t available right now. Copy the link instead.');
+      if (mounted) showMessage(context, 'Sharing isn’t available right now. Please try again.');
     } finally {
       if (mounted) setState(() => _sharing = false);
+    }
+  }
+
+  /// The file couldn't be attached: say why, and let the user choose the link.
+  Future<void> _offerLink(ApkUnavailable problem, ShareInfo info, String company) async {
+    final useLink = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Couldn’t attach the app file'),
+        content: Text(
+          '${problem.message}\n\nYou can send your referral link instead. Your friend then downloads the app from it.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Not now')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Share link instead')),
+        ],
+      ),
+    );
+    if (useLink == true && mounted) {
+      await ref.read(apkShareServiceProvider).shareLink(companyName: company, info: info);
     }
   }
 
@@ -129,6 +151,12 @@ class _ShareScreenState extends ConsumerState<ShareScreen> {
                 loading: _sharing,
                 onPressed: () => _shareApp(info, cfg.companyName),
               ),
+              const SizedBox(height: Space.s),
+              const Text(
+                'Sends the app file itself, with your referral code built in.',
+                style: AppType.caption,
+                textAlign: TextAlign.center,
+              ),
               const SizedBox(height: Space.m),
               SecondaryButton(
                 label: 'Share Referral Link',
@@ -139,9 +167,10 @@ class _ShareScreenState extends ConsumerState<ShareScreen> {
               const GlassCard(
                 padding: EdgeInsets.all(Space.l),
                 child: Text(
-                  'How your friend is linked to you: they enter your code when signing up (links fill it in '
-                  'automatically when the app is already installed). The link is decided by our server at signup '
-                  'and can’t be changed later. Their reward counts once they verify with Telegram.',
+                  'How your friend is linked to you: the app file you send carries your code, and it fills itself in '
+                  'when they sign up. They can also type it, or open your link after installing. Our server links '
+                  'them to you at signup, and that can’t be changed later. Their reward counts once they verify '
+                  'with Telegram.',
                   style: AppType.bodySmall,
                 ),
               ),
