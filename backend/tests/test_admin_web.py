@@ -169,6 +169,7 @@ async def test_admin_pages_render(client):
     await admin_login(client)
     for path in (
         "/admin",
+        "/admin/reports",
         "/admin/campaign",
         "/admin/settings",
         "/admin/bots",
@@ -183,6 +184,30 @@ async def test_admin_pages_render(client):
         assert r.status_code == 200, path
         assert r.headers["x-frame-options"] == "DENY"
     assert "The ledger balances" in (await client.get("/admin/ledger")).text
+
+
+async def test_reports_page_shows_real_totals(client, telegram):
+    """The Reports page aggregates live data: verified members, the referral
+    spread, rewards credited and the top referrers — all computed, none seeded."""
+    await admin_login(client)
+    setup = await telegram_setup(telegram, channels=0)
+    await fund_pool()
+    referrer = await verified_user(client, setup)
+    await verified_user(client, setup, referrer["user"]["public_id"])
+    await verified_user(client, setup, referrer["user"]["public_id"])
+
+    body = (await client.get("/admin/reports")).text
+    # Three verified members, and the level-1 rate is ₹200.
+    assert "Verified members" in body and "₹200" in body
+    # Two direct referrals qualified → two reward records worth ₹400 in total.
+    assert "2 reward records, all level 1" in body
+    assert "₹400" in body
+    # The four levels are shown; levels 2-4 are locked at ₹0 and the reason is stated.
+    assert "Level 1" in body and "Level 4" in body
+    assert "locked" in body and "money-circulation" in body
+    # The top referrer is identified only by public reference id, never a phone.
+    assert referrer["user"]["public_id"] in body
+    assert referrer["phone"] not in body
 
 
 async def test_landing_page_and_download(client):

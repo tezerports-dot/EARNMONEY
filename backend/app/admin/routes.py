@@ -10,7 +10,7 @@ from __future__ import annotations
 import csv
 import io
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, FastAPI, Form, Request
@@ -30,6 +30,8 @@ from app.models import (
     BankAccount,
     LedgerAccount,
     PayoutBatch,
+    ReferralEdge,
+    ReferralReward,
     ReferralSnapshot,
     RequiredChannel,
     RiskFlag,
@@ -209,6 +211,107 @@ async def dashboard(
             bots=bot_rows,
             open_flags=open_flags,
             queue=queue,
+        )
+
+
+@router.get("/reports")
+async def reports_page(
+    request: Request, ctx: AdminContext = Depends(current_admin), db: AsyncSession = Depends(get_db)
+) -> HTMLResponse:
+    """Every headline number in one place: members, rewards, money, withdrawals,
+    the referral spread, and recent sign-ups. Read-only aggregates."""
+    async with db.begin():
+        c = await campaign.current_campaign(db)
+        at = timeutil.now()
+
+        users_by_status = dict((await db.execute(select(User.status, func.count()).group_by(User.status))).all())
+        total_users = sum(users_by_status.values())
+        verified_count = await campaign.verified_count(db)
+
+        reward_count, reward_total = (
+            await db.execute(
+                select(func.count(), func.coalesce(func.sum(ReferralReward.amount_paise), 0)).where(
+                    ReferralReward.status == "CREDITED"
+                )
+            )
+        ).one()
+
+        async def account_sum(kind: str) -> int:
+            return int(
+                (
+                    await db.execute(
+                        select(func.coalesce(func.sum(LedgerAccount.balance_paise), 0)).where(LedgerAccount.kind == kind)
+                    )
+                ).scalar_one()
+            )
+
+        pending_money = await account_sum("USER_PENDING")
+        available_money = await account_sum("USER_AVAILABLE")
+        funded = await campaign.funded_total(db)
+        pool = await campaign.pool_balance(db)
+
+        withdrawals_by_status = {
+            status: (int(count), int(total))
+            for status, count, total in (
+                await db.execute(
+                    select(
+                        WithdrawalRequest.status,
+                        func.count(),
+                        func.coalesce(func.sum(WithdrawalRequest.amount_paise), 0),
+                    ).group_by(WithdrawalRequest.status)
+                )
+            ).all()
+        }
+
+        edges_by_level = dict(
+            (
+                await db.execute(
+                    select(ReferralEdge.level, func.count())
+                    .where(ReferralEdge.status == "QUALIFIED")
+                    .group_by(ReferralEdge.level)
+                )
+            ).all()
+        )
+
+        since = at - timedelta(days=7)
+        signups_7d = (await db.execute(select(func.count()).select_from(User).where(User.created_at >= since))).scalar_one()
+        verified_7d = (await db.execute(select(func.count()).select_from(User).where(User.verified_at >= since))).scalar_one()
+
+        direct_qualified = (
+            (ReferralEdge.ancestor_id == User.id) & (ReferralEdge.level == 1) & (ReferralEdge.status == "QUALIFIED")
+        )
+        top_referrers = (
+            await db.execute(
+                select(User.public_id, func.count(ReferralEdge.descendant_id).label("n"))
+                .join(ReferralEdge, direct_qualified)
+                .group_by(User.public_id)
+                .order_by(func.count(ReferralEdge.descendant_id).desc())
+                .limit(10)
+            )
+        ).all()
+
+        return page(
+            request,
+            "reports.html",
+            ctx,
+            c=c,
+            total_users=total_users,
+            users_by_status=users_by_status,
+            verified_count=verified_count,
+            reward_count=int(reward_count),
+            reward_total=int(reward_total),
+            reward_each=c.level_1_reward_paise,
+            pending_money=pending_money,
+            available_money=available_money,
+            funded=funded,
+            pool=pool,
+            spent=funded - pool,
+            withdrawals_by_status=withdrawals_by_status,
+            edges_by_level=edges_by_level,
+            levels=campaign.reward_per_level(c),
+            signups_7d=signups_7d,
+            verified_7d=verified_7d,
+            top_referrers=top_referrers,
         )
 
 

@@ -28,11 +28,21 @@ At a glance:
 - withdrawals by status and open fraud flags;
 - the job queue, with the age of its oldest ready job. If that keeps growing, the worker is behind.
 
+### Reports
+
+One read-only page with every headline number, computed live from the ledger and the database — nothing is seeded or estimated:
+
+- **Members:** verified members against capacity, total accounts, and the split by status (active, waiting, suspended), plus sign-ups and verifications in the last 7 days.
+- **Referral spread and rewards:** the four-level table with the qualified user count at each level, the reward per user and the total. Only level 1 pays; levels 2–4 read ₹0 and are marked *locked*. Below it, rewards credited from the ledger (count and total) and the level-1 amount.
+- **Money:** promotional pool funded, left and committed to users; users' pending balance (unlocks on the payout date) and available balance (withdrawable now).
+- **Withdrawals:** request count and amount in each state (requested, processing, paid, failed).
+- **Top referrers:** the ten accounts with the most qualified direct referrals, shown by public reference id only — never a phone number.
+
 ### Campaign
 
 - **Dates** (in IST): start, end, brand reveal, launch and payout date. The app's countdown and the payout date come from here.
 - **Brand name.** The app shows it only from the brand reveal time.
-- **Level 1 reward:** ₹ per verified direct referral. A change applies to new rewards only; rewards already credited keep their amount. Levels 2–4 always pay ₹0, and there's deliberately no setting for them.
+- **Referral rewards (by level).** A four-row table, one row per level, so the whole reward structure is visible and driven by one formula. **Level 1** is editable — ₹ per verified direct referral; a change applies to new rewards only, and rewards already credited keep their amount. **Levels 2–4** are shown but disabled, fixed at ₹0 and marked *locked*: paying indirect referrals is a money-circulation scheme, so the ₹0 is pinned in server code and by database `CHECK` constraints, not a setting anyone can change.
 - **Minimum withdrawal** and **capacity** (members).
 - **Pause** stops new rewards. **Sign-ups open** closes new sign-ups, which also close by themselves at capacity.
 - **Show promotional allocation.** When on, the app shows the total actually recorded in the pool, never a typed-in figure.
@@ -87,7 +97,7 @@ A flag doesn't take anything away and isn't shown to the user. It only holds the
 ## Things the panel deliberately can't do
 
 - set or inflate the member count;
-- pay levels 2–4, or set a reward for them;
+- pay levels 2–4, or set a non-zero reward for them (the per-level table shows them, but the amount is pinned at ₹0);
 - change or remove who referred someone;
 - edit or delete ledger entries or audit records;
 - mark a withdrawal paid outside a batch, or without a bank reference.

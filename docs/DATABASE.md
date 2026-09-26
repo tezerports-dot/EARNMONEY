@@ -88,7 +88,7 @@ How money moves:
 
 ### Configuration
 
-**`campaigns`**. `name`, `starts_at`, `ends_at`, `brand_reveal_at`, `launch_at`, `payout_opens_at`, `brand_name`, `level_1_reward_paise`, `min_withdrawal_paise`, `capacity`, `signups_open`, `paused`, `show_promo_allocation`, `is_current` (one current campaign).
+**`campaigns`**. `name`, `starts_at`, `ends_at`, `brand_reveal_at`, `launch_at`, `payout_opens_at`, `brand_name`, `level_1_reward_paise` (`CHECK > 0`), `level_2_reward_paise`, `level_3_reward_paise`, `level_4_reward_paise` (each `CHECK = 0`, so the reward table is one formula over four columns but only level 1 can be non-zero), `min_withdrawal_paise`, `capacity`, `signups_open`, `paused`, `show_promo_allocation`, `is_current` (one current campaign).
 
 **`app_settings`**. A single row: company details and links, `min_app_version`, `apk_download_url`, maintenance mode, announcement, ad switches and interval, `accept_pending_join_requests`, `verification_session_minutes`, `max_contact_mismatches`.
 

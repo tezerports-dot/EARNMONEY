@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import timeutil
 from app.models import AppSettings, Campaign, LedgerAccount, LedgerEntry, LedgerTransaction, MembershipCounter
-from app.models.referrals import MAX_TRACKED_LEVEL, PAID_LEVEL
+from app.models.referrals import MAX_TRACKED_LEVEL
 
 
 async def current_campaign(db: AsyncSession) -> Campaign:
@@ -62,10 +62,17 @@ async def gates(db: AsyncSession, campaign: Campaign | None = None) -> Gates:
     )
 
 
+def reward_paise_for_level(campaign: Campaign, level: int) -> int:
+    """The reward per verified referral at ``level``. Only level 1 is ever
+    non-zero; levels 2-4 read columns the database pins at 0 (money-circulation
+    rules), so this one formula drives the whole table without special cases."""
+    return getattr(campaign, f"level_{level}_reward_paise", 0)
+
+
 def reward_per_level(campaign: Campaign) -> list[dict[str, int]]:
-    """The four-level table. Only level 1 has an amount; the rest are fixed at ₹0."""
+    """The four-level table, each level's amount straight from its column."""
     return [
-        {"level": level, "reward_per_user_paise": campaign.level_1_reward_paise if level == PAID_LEVEL else 0}
+        {"level": level, "reward_per_user_paise": reward_paise_for_level(campaign, level)}
         for level in range(1, MAX_TRACKED_LEVEL + 1)
     ]
 

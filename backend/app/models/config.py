@@ -12,6 +12,12 @@ class Campaign(Base):
     __tablename__ = "campaigns"
     __table_args__ = (
         CheckConstraint("level_1_reward_paise > 0", name="reward_positive"),
+        # Levels 2-4 are counted, never paid: a payout for them is a money-
+        # circulation scheme. The column exists so one formula drives the whole
+        # table, but the value can only ever be zero.
+        CheckConstraint("level_2_reward_paise = 0", name="level_2_reward_zero"),
+        CheckConstraint("level_3_reward_paise = 0", name="level_3_reward_zero"),
+        CheckConstraint("level_4_reward_paise = 0", name="level_4_reward_zero"),
         CheckConstraint("min_withdrawal_paise > 0", name="min_withdrawal_positive"),
         CheckConstraint("capacity > 0", name="capacity_positive"),
         CheckConstraint("starts_at < ends_at", name="dates_ordered"),
@@ -27,6 +33,9 @@ class Campaign(Base):
     payout_opens_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     brand_name: Mapped[str | None] = mapped_column(String(100))
     level_1_reward_paise: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    level_2_reward_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("0"))
+    level_3_reward_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("0"))
+    level_4_reward_paise: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("0"))
     min_withdrawal_paise: Mapped[int] = mapped_column(BigInteger, nullable=False)
     capacity: Mapped[int] = mapped_column(BigInteger, nullable=False)
     signups_open: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))

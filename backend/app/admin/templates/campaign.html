@@ -13,8 +13,14 @@
   <div class="help">Rewards stay pending until this moment; users can withdraw from then.</div>
   <label>Brand name</label><input name="brand_name" value="{{ c.brand_name or '' }}" maxlength="100">
   <div class="help">The app only shows it from the brand reveal time.</div>
-  <label>Level 1 reward (₹ per verified direct referral)</label><input name="level_1_reward_rupees" value="{{ c.level_1_reward_paise // 100 }}" inputmode="numeric" required>
-  <div class="help">Applies to new rewards only; rewards already credited keep their amount. Levels 2–4 always pay ₹0 and can't be changed here.</div>
+  <label>Referral rewards (₹ per verified referral, by level)</label>
+  <table class="levels">
+    <tr><th>Level 1 (direct)</th><td><input name="level_1_reward_rupees" value="{{ c.level_1_reward_paise // 100 }}" inputmode="numeric" required></td></tr>
+    <tr><th>Level 2</th><td><input value="{{ c.level_2_reward_paise // 100 }}" disabled> <span class="muted">locked at ₹0</span></td></tr>
+    <tr><th>Level 3</th><td><input value="{{ c.level_3_reward_paise // 100 }}" disabled> <span class="muted">locked at ₹0</span></td></tr>
+    <tr><th>Level 4</th><td><input value="{{ c.level_4_reward_paise // 100 }}" disabled> <span class="muted">locked at ₹0</span></td></tr>
+  </table>
+  <div class="help">Level 1 applies to new rewards only; rewards already credited keep their amount. Levels 2–4 are counted in the table but never pay — the amount is fixed at ₹0 in the database, because paying for indirect referrals is a money-circulation scheme. See <a class="ok" href="/admin/reports">Reports</a>.</div>
   <label>Minimum withdrawal (₹)</label><input name="min_withdrawal_rupees" value="{{ c.min_withdrawal_paise // 100 }}" inputmode="numeric" required>
   <label>Capacity (members)</label><input name="capacity" value="{{ c.capacity }}" inputmode="numeric" required>
   <label class="check"><input type="checkbox" name="signups_open" {{ "checked" if c.signups_open }}>Sign-ups open</label>

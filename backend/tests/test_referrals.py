@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app import db
 from app.models import Campaign, Job, ReferralReward, User
+from app.services import campaign as campaign_service
 from app.services import rewards
 from app.worker import run_ready_jobs
 from tests import helpers
@@ -88,6 +89,45 @@ async def test_database_refuses_deeper_rewards_and_income(client, telegram):
         with pytest.raises(IntegrityError, match="level_2_unpaid"):
             async with s.begin():
                 await s.execute(text("UPDATE referral_snapshots SET level_2_income_paise = 5000"))
+
+
+async def test_reward_per_level_reads_the_columns():
+    """One formula drives the whole table: each level's rate is its own column.
+    Level 1 is the configured amount; levels 2-4 read columns pinned at 0."""
+    async with db.sessionmaker()() as s, s.begin():
+        campaign = await campaign_service.current_campaign(s)
+    assert campaign_service.reward_per_level(campaign) == [
+        {"level": 1, "reward_per_user_paise": 20000},
+        {"level": 2, "reward_per_user_paise": 0},
+        {"level": 3, "reward_per_user_paise": 0},
+        {"level": 4, "reward_per_user_paise": 0},
+    ]
+    assert campaign_service.reward_paise_for_level(campaign, 1) == 20000
+    assert campaign_service.reward_paise_for_level(campaign, 3) == 0
+    # Nothing deeper than level 4 is tracked, so it has no column and reads 0.
+    assert campaign_service.reward_paise_for_level(campaign, 5) == 0
+
+
+async def test_database_refuses_a_nonzero_deeper_reward_rate():
+    """The per-level columns exist so the table has one shape, but a payout rate
+    for levels 2-4 is a money-circulation scheme, so the database pins them at 0.
+    Only level 1's rate can be changed."""
+    async with db.sessionmaker()() as s, s.begin():
+        await s.execute(text("UPDATE campaigns SET level_1_reward_paise = 30000 WHERE is_current"))
+    for level in (2, 3, 4):
+        async with db.sessionmaker()() as s:
+            with pytest.raises(IntegrityError, match=f"level_{level}_reward_zero"):
+                async with s.begin():
+                    await s.execute(text(f"UPDATE campaigns SET level_{level}_reward_paise = 5000 WHERE is_current"))
+    async with db.sessionmaker()() as s, s.begin():
+        row = (
+            await s.execute(
+                text(
+                    "SELECT level_1_reward_paise, level_2_reward_paise, level_3_reward_paise, level_4_reward_paise FROM campaigns WHERE is_current"
+                )
+            )
+        ).one()
+    assert tuple(row) == (30000, 0, 0, 0)
 
 
 async def test_reward_is_credited_once(client, telegram):
