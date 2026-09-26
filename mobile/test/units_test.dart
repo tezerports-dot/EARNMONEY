@@ -142,12 +142,16 @@ void main() {
       String location = '/home',
       bool onboardingSeen = true,
       String version = '1.0.0',
+      bool launchGateEnabled = false,
+      bool launchGatePassed = true,
     }) => decideRedirect(
       config: config ?? ok,
       session: session ?? signedIn('ACTIVE'),
       onboardingSeen: onboardingSeen,
       appVersion: version,
       location: location,
+      launchGateEnabled: launchGateEnabled,
+      launchGatePassed: launchGatePassed,
     );
 
     test('waits on the splash while loading', () {
@@ -188,6 +192,12 @@ void main() {
 
     test('suspended accounts are held on one screen', () {
       expect(decide(session: signedIn('SUSPENDED'), location: '/home'), '/suspended');
+    });
+
+    test('launch gate holds active accounts until Telegram confirms them', () {
+      expect(decide(launchGateEnabled: true, launchGatePassed: false), '/gate');
+      expect(decide(location: '/gate', launchGateEnabled: true, launchGatePassed: true), '/home');
+      expect(decide(launchGateEnabled: false, launchGatePassed: false), isNull);
     });
   });
 

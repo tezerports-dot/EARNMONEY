@@ -19,6 +19,8 @@ String? decideRedirect({
   required bool onboardingSeen,
   required String appVersion,
   required String location,
+  required bool launchGateEnabled,
+  required bool launchGatePassed,
 }) {
   String? go(String target) => location == target ? null : target;
 
@@ -53,6 +55,8 @@ String? decideRedirect({
       // Verification just finished (the session was refreshed on /verify).
       if (location == '/verify') return '/verify/success';
       if (_authPages.contains(location) || _systemPages.contains(location)) return '/home';
+      if (launchGateEnabled && !launchGatePassed) return go('/gate');
+      if (location == '/gate') return '/home';
       return null;
   }
 }

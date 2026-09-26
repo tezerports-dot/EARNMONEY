@@ -187,6 +187,7 @@ class PublicConfig {
     required this.termsUrl,
     required this.privacyUrl,
     required this.supportUrl,
+    required this.launchGateEnabled,
   });
 
   factory PublicConfig.fromJson(Json j) {
@@ -218,6 +219,7 @@ class PublicConfig {
       termsUrl: links.strOrNull('terms_url'),
       privacyUrl: links.strOrNull('privacy_url'),
       supportUrl: links.strOrNull('support_url'),
+      launchGateEnabled: (j.objOrNull('launch_gate')?.boolean('enabled')) ?? false,
     );
   }
 
@@ -241,9 +243,60 @@ class PublicConfig {
   final String? termsUrl;
   final String? privacyUrl;
   final String? supportUrl;
+  final bool launchGateEnabled;
 
   /// The only paid level, as the server reports it.
   int get level1RewardPaise => levels.firstWhere((l) => l.level == 1).rewardPerUserPaise;
+}
+
+class LaunchChallenge {
+  const LaunchChallenge({required this.enabled, required this.deepLink, required this.expiresIn});
+
+  factory LaunchChallenge.fromJson(Json j) => LaunchChallenge(
+    enabled: j.boolean('enabled'),
+    deepLink: j.strOrNull('deep_link'),
+    expiresIn: j.integer('expires_in'),
+  );
+
+  final bool enabled;
+  final String? deepLink;
+  final int expiresIn;
+}
+
+class LaunchStatus {
+  const LaunchStatus({required this.enabled, required this.passed});
+
+  factory LaunchStatus.fromJson(Json j) => LaunchStatus(enabled: j.boolean('enabled'), passed: j.boolean('passed'));
+
+  final bool enabled;
+  final bool passed;
+}
+
+class RecruitmentPost {
+  const RecruitmentPost({
+    required this.title,
+    required this.location,
+    required this.employmentType,
+    required this.description,
+    required this.applyUrl,
+    required this.applyEmail,
+  });
+
+  factory RecruitmentPost.fromJson(Json j) => RecruitmentPost(
+    title: j.str('title'),
+    location: j.strOrNull('location'),
+    employmentType: j.strOrNull('employment_type'),
+    description: j.str('description'),
+    applyUrl: j.strOrNull('apply_url'),
+    applyEmail: j.strOrNull('apply_email'),
+  );
+
+  final String title;
+  final String? location;
+  final String? employmentType;
+  final String description;
+  final String? applyUrl;
+  final String? applyEmail;
 }
 
 enum VerificationStatus { open, inProgress, completed, expired, failed }

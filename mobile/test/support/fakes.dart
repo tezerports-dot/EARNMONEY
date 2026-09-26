@@ -207,6 +207,9 @@ class FakeApi implements FutureFashionApi {
   Me meResponse = Me.fromJson(meJson());
   Wallet walletResponse = Wallet.fromJson(walletJson());
   BankDetails bankResponse = const BankDetails(saved: false);
+  LaunchChallenge launchChallengeResponse = const LaunchChallenge(enabled: false, deepLink: null, expiresIn: 0);
+  LaunchStatus launchStatusResponse = const LaunchStatus(enabled: false, passed: true);
+  List<RecruitmentPost> recruitmentResponse = [];
   VerificationSession sessionResponse = VerificationSession.fromJson({
     'status': 'OPEN',
     'bot_username': 'futurefashion_verify_01_bot',
@@ -305,6 +308,27 @@ class FakeApi implements FutureFashionApi {
     calls.add('verificationStatus');
     _gate('verificationStatus');
     return sessionResponse;
+  }
+
+  @override
+  Future<LaunchChallenge> launchChallenge() async {
+    calls.add('launchChallenge');
+    _gate('launchChallenge');
+    return launchChallengeResponse;
+  }
+
+  @override
+  Future<LaunchStatus> launchStatus() async {
+    calls.add('launchStatus');
+    _gate('launchStatus');
+    return launchStatusResponse;
+  }
+
+  @override
+  Future<List<RecruitmentPost>> recruitment() async {
+    calls.add('recruitment');
+    _gate('recruitment');
+    return recruitmentResponse;
   }
 
   @override

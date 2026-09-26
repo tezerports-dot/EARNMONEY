@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-/// Bottom navigation with only the four main destinations (CLAUDE.md §18).
+/// Bottom navigation for the five main destinations.
 class AppShell extends StatelessWidget {
   const AppShell({super.key, required this.shell});
 
@@ -29,6 +29,11 @@ class AppShell extends StatelessWidget {
           icon: Icon(Icons.person_outline_rounded),
           selectedIcon: Icon(Icons.person_rounded),
           label: 'Profile',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.work_outline_rounded),
+          selectedIcon: Icon(Icons.work_rounded),
+          label: 'Jobs',
         ),
       ],
     ),
