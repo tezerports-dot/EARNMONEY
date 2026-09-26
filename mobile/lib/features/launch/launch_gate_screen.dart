@@ -107,7 +107,7 @@ class _LaunchGateScreenState extends ConsumerState<LaunchGateScreen>
               const SizedBox(height: Space.xl),
               PrimaryButton(
                 label: 'Continue in Telegram',
-                icon: Icons.open_in_new_rounded,
+                icon: Icons.send_rounded,
                 onPressed: _openTelegram,
               ),
               const SizedBox(height: Space.m),
