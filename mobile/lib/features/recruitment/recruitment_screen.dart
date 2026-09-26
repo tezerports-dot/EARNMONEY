@@ -1,4 +1,3 @@
-// dart format off
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -80,4 +79,3 @@ class _PostCard extends StatelessWidget {
     );
   }
 }
-// dart format on
