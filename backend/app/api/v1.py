@@ -21,6 +21,8 @@ from app.services import (
     bank,
     campaign,
     idempotency,
+    launch_gate,
+    recruitment,
     referrals,
     sessions,
     users,
@@ -164,6 +166,33 @@ async def get_verification(ctx: Auth = Depends(auth), db: AsyncSession = Depends
     await ratelimit.hit(ratelimit.USER_READS, ctx.user.id)
     async with db.begin():
         return ok(await verification.current_session(db, ctx.user))
+
+
+# --- Launch gate (Telegram Mini App) ---------------------------------------------
+
+
+@router.post("/launch/challenge")
+async def launch_challenge(ctx: Auth = Depends(auth), db: AsyncSession = Depends(get_db)) -> JSONResponse:
+    await ratelimit.hit(ratelimit.LAUNCH_CHALLENGE, ctx.user.id)
+    async with db.begin():
+        return ok(await launch_gate.challenge(db, ctx.user))
+
+
+@router.post("/launch/status")
+async def launch_status(ctx: Auth = Depends(auth), db: AsyncSession = Depends(get_db)) -> JSONResponse:
+    await ratelimit.hit(ratelimit.USER_READS, ctx.user.id)
+    async with db.begin():
+        return ok(await launch_gate.status(db, ctx.user.id))
+
+
+# --- Recruitment ------------------------------------------------------------------
+
+
+@router.get("/recruitment")
+async def recruitment_list(ctx: Auth = Depends(auth), db: AsyncSession = Depends(get_db)) -> JSONResponse:
+    await ratelimit.hit(ratelimit.USER_READS, ctx.user.id)
+    async with db.begin():
+        return ok(await recruitment.list_open(db))
 
 
 # --- Verified users -----------------------------------------------------------------

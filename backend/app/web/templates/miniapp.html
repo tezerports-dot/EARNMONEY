@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <title>{{ company }}</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root { --ink:#0B0A14; --plum:#1F1A38; --line:#2E2850; --gold:#E8C07A; --text:#F5F3FF; --muted:#BEB8D6; --ok:#3DDC97; --bad:#FF7A7A; }
+    * { box-sizing: border-box; }
+    html, body { margin:0; height:100%; }
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--ink); color: var(--text);
+           display:flex; align-items:center; justify-content:center; padding: 24px; }
+    .card { width:100%; max-width: 460px; background: var(--plum); border:1px solid var(--line); border-radius: 24px;
+            padding: 28px 22px; text-align:center; }
+    .badge { width:72px; height:72px; margin: 4px auto 14px; border-radius: 20px; background: radial-gradient(circle at 30% 30%, #3a2f66, #171331);
+             display:flex; align-items:center; justify-content:center; font-size: 34px; }
+    h1 { font-size: 21px; margin: 0 0 8px; }
+    p { color: var(--muted); font-size: 15px; line-height: 1.5; margin: 0 0 18px; }
+    button { width:100%; background: var(--gold); color: var(--ink); border:0; border-radius: 14px; padding: 15px 18px;
+             font-size: 16px; font-weight: 800; cursor: pointer; }
+    button[disabled] { opacity: .6; }
+    a.return { display:inline-block; margin-top: 14px; color: var(--gold); text-decoration:none; font-weight:700; }
+    .status { min-height: 20px; margin-top: 14px; font-size: 14px; }
+    .ok { color: var(--ok); } .bad { color: var(--bad); }
+    .spin { width:22px; height:22px; border:3px solid rgba(255,255,255,.25); border-top-color: var(--gold); border-radius:50%;
+            display:inline-block; animation: r 0.8s linear infinite; vertical-align: middle; }
+    @keyframes r { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="badge">🔓</div>
+    <h1>Open {{ company }}</h1>
+    <p id="lead">Tap continue to watch a short ad and unlock the app. You’re signed in with your verified Telegram account.</p>
+    <button id="go">Continue</button>
+    <div class="status" id="status"></div>
+    <a class="return" id="back" href="{{ return_url }}" hidden>Return to the app →</a>
+  </main>
+
+  <script>
+    // Config injected by the server; the block id is public, never a secret.
+    var ADSGRAM_BLOCK_ID = {{ adsgram_block_id | tojson }};
+    var RETURN_URL = {{ return_url | tojson }};
+    var tg = window.Telegram && window.Telegram.WebApp;
+    if (tg) { tg.ready(); tg.expand(); }
+
+    var initData = tg ? tg.initData : "";
+    var nonce = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || "";
+    var goBtn = document.getElementById("go");
+    var statusEl = document.getElementById("status");
+    var backLink = document.getElementById("back");
+
+    function setStatus(html, cls) { statusEl.className = "status " + (cls || ""); statusEl.innerHTML = html; }
+
+    // Load the Adsgram SDK; if it can't load we still let the user through so an
+    // ad outage never traps them (the app shows ads when they're available).
+    function loadAdsgram() {
+      return new Promise(function (resolve) {
+        if (!ADSGRAM_BLOCK_ID) return resolve(null);
+        var s = document.createElement("script");
+        s.src = "https://sad.adsgram.ai/js/sad.min.js";
+        s.onload = function () {
+          try { resolve(window.Adsgram ? window.Adsgram.init({ blockId: ADSGRAM_BLOCK_ID }) : null); }
+          catch (e) { resolve(null); }
+        };
+        s.onerror = function () { resolve(null); };
+        document.head.appendChild(s);
+      });
+    }
+
+    async function showAd() {
+      var controller = await loadAdsgram();
+      if (!controller) return;                       // no ad configured/available
+      try { await controller.show(); } catch (e) { /* closed early or failed: continue */ }
+    }
+
+    async function complete() {
+      var res = await fetch("/miniapp/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ init_data: initData, nonce: nonce })
+      });
+      if (res.ok) return true;
+      var code = "";
+      try { code = (await res.json()).error.code; } catch (e) {}
+      if (code === "LAUNCH_GATE_MISMATCH") {
+        setStatus("Open this from the Telegram account you verified with.", "bad");
+      } else {
+        setStatus("That didn’t work. Please reopen from the app and try again.", "bad");
+      }
+      return false;
+    }
+
+    goBtn.onclick = async function () {
+      if (!initData) { setStatus("Please open this from inside Telegram.", "bad"); return; }
+      goBtn.disabled = true;
+      setStatus('<span class="spin"></span>', "");
+      await showAd();
+      var done = await complete();
+      if (!done) { goBtn.disabled = false; return; }
+      goBtn.hidden = true;
+      setStatus("You’re all set. Returning to the app…", "ok");
+      backLink.hidden = false;
+      // Try to bounce straight back to the app, then close the Mini App.
+      try { window.location.href = RETURN_URL; } catch (e) {}
+      setTimeout(function () { if (tg) tg.close(); }, 1200);
+    };
+  </script>
+</body>
+</html>

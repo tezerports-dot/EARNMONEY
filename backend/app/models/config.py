@@ -59,6 +59,7 @@ class AppSettings(Base):
         CheckConstraint("ads_min_interstitial_interval_seconds >= 60", name="interstitial_interval"),
         CheckConstraint("verification_session_minutes BETWEEN 5 AND 1440", name="session_minutes"),
         CheckConstraint("max_contact_mismatches BETWEEN 1 AND 10", name="mismatch_limit"),
+        CheckConstraint("launch_gate_pass_seconds BETWEEN 60 AND 604800", name="launch_gate_pass_seconds"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, server_default="1")
@@ -83,6 +84,39 @@ class AppSettings(Base):
     accept_pending_join_requests: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     verification_session_minutes: Mapped[int] = mapped_column(Integer, nullable=False, server_default="30")
     max_contact_mismatches: Mapped[int] = mapped_column(Integer, nullable=False, server_default="3")
+    # Telegram Mini App launch gate: when on, the app makes each user reopen a
+    # Mini App (which shows an ad) from their own verified Telegram account
+    # before it will show their data. Off by default; the operator turns it on.
+    launch_gate_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    # How long one Mini App pass keeps the app usable before it is asked for again.
+    launch_gate_pass_seconds: Mapped[int] = mapped_column(Integer, nullable=False, server_default="21600")
+    # The Mini App short name registered with @BotFather on the watcher bot, and
+    # the Adsgram block id shown inside it. Both are public, not secrets.
+    miniapp_short_name: Mapped[str | None] = mapped_column(String(64))
+    adsgram_block_id: Mapped[str | None] = mapped_column(String(64))
+    updated_at: Mapped[datetime] = timestamp_column()
+
+
+class RecruitmentPost(Base):
+    """A job opening the admin posts; the app's Recruitment tab lists the open
+    ones. Plain content — no personal or financial data."""
+
+    __tablename__ = "recruitment_posts"
+    __table_args__ = (
+        CheckConstraint("apply_email IS NULL OR apply_email <> ''", name="apply_email_not_blank"),
+        Index("ix_recruitment_posts_open", "is_open", "sort_order", "id"),
+    )
+
+    id: Mapped[int] = pk()
+    title: Mapped[str] = mapped_column(String(120), nullable=False)
+    location: Mapped[str | None] = mapped_column(String(120))
+    employment_type: Mapped[str | None] = mapped_column(String(60))
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    apply_url: Mapped[str | None] = mapped_column(Text)
+    apply_email: Mapped[str | None] = mapped_column(String(200))
+    is_open: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    created_at: Mapped[datetime] = timestamp_column()
     updated_at: Mapped[datetime] = timestamp_column()
 
 

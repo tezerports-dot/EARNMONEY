@@ -7,14 +7,17 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import ids
+from app.api.deps import client_ip
 from app.config import get_settings
 from app.db import get_db
 from app.redis_client import redis
-from app.services import campaign
+from app.security import ratelimit
+from app.services import campaign, launch_gate
 
 router = APIRouter(include_in_schema=False)
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -39,6 +42,49 @@ async def referral_landing(code: str, request: Request, db: AsyncSession = Depen
         },
         headers={"Cache-Control": "public, max-age=300"},
     )
+
+
+@router.get("/miniapp")
+async def miniapp(request: Request, db: AsyncSession = Depends(get_db)) -> Response:
+    """The Telegram Mini App: shows an Adsgram ad, then records the launch pass.
+    Runs inside Telegram, which passes the signed initData the page sends back."""
+    async with db.begin():
+        settings = await campaign.app_settings(db)
+    return templates.TemplateResponse(
+        request,
+        "miniapp.html",
+        {
+            "company": settings.company_name,
+            "adsgram_block_id": settings.adsgram_block_id or "",
+            # An https link on our domain opens the app (App Links); the custom
+            # scheme is the fallback. The app also re-checks on its own when it
+            # comes back to the foreground.
+            "return_url": "futurefashion://gate",
+        },
+        headers={
+            "Cache-Control": "no-store",
+            # The Mini App loads Telegram's SDK and Adsgram; allow just those.
+            "Content-Security-Policy": (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' https://telegram.org https://sad.adsgram.ai; "
+                "connect-src 'self' https://sad.adsgram.ai; "
+                "style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; frame-src https://sad.adsgram.ai"
+            ),
+        },
+    )
+
+
+class MiniAppComplete(BaseModel):
+    init_data: str = Field(max_length=4096)
+    nonce: str | None = Field(default=None, max_length=64)
+
+
+@router.post("/miniapp/complete")
+async def miniapp_complete(body: MiniAppComplete, request: Request, db: AsyncSession = Depends(get_db)) -> JSONResponse:
+    await ratelimit.hit(ratelimit.MINIAPP_COMPLETE, client_ip(request))
+    async with db.begin():
+        result = await launch_gate.complete(db, body.init_data, body.nonce)
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/download")

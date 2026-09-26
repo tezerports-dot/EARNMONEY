@@ -136,6 +136,10 @@ async def public_config(db: AsyncSession) -> dict:
             "rewarded_enabled": settings.ads_rewarded_enabled,
             "min_interstitial_interval_seconds": settings.ads_min_interstitial_interval_seconds,
         },
+        # Whether the app must send the user through the Telegram Mini App on
+        # each open. The deep link itself comes from /v1/launch/challenge, so
+        # nothing here reveals the bot or the Mini App to people who aren't in.
+        "launch_gate": {"enabled": settings.launch_gate_enabled},
         "links": {
             "terms_url": settings.terms_url,
             "privacy_url": settings.privacy_url,

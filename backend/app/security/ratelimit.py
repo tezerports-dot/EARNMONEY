@@ -42,6 +42,9 @@ BANK_UPDATES = Limit("bank_user", 5, 86400)
 WITHDRAWALS = Limit("withdraw_user", 5, 3600)
 TELEGRAM_MESSAGES = Limit("tg_user", 20, 60)
 ADMIN_LOGIN_IP = Limit("admin_login_ip", 10, 900)
+# Launch gate: a challenge per user, and the Mini App callback per IP.
+LAUNCH_CHALLENGE = Limit("launch_user", 40, 60)
+MINIAPP_COMPLETE = Limit("miniapp_ip", 60, 60)
 
 # Login failures per phone: CAPTCHA from the 3rd, locked from the 10th.
 LOGIN_FAILURES_WINDOW = 3600

@@ -13,7 +13,7 @@ from app.config import get_settings
 from app.db import get_db
 from app.models import AuthSession, User
 from app.security import ratelimit
-from app.services import campaign, idempotency, sessions
+from app.services import campaign, idempotency, launch_gate, sessions
 
 
 def client_ip(request: Request) -> str:
@@ -43,6 +43,7 @@ class _GateState:
     maintenance: bool
     message: str | None
     until: str | None
+    launch_gate: bool
     loaded_at: float
 
 
@@ -69,6 +70,9 @@ async def _gate_state(db: AsyncSession) -> _GateState:
         maintenance=on,
         message=settings.maintenance_message if on else None,
         until=timeutil.iso(settings.maintenance_until) if on else None,
+        # The gate is only enforceable once a Mini App short name is configured;
+        # without it the app has no deep link to send the user to.
+        launch_gate=settings.launch_gate_enabled and bool(settings.miniapp_short_name),
         loaded_at=time.monotonic(),
     )
     return _gate_cache
@@ -101,11 +105,16 @@ async def auth(request: Request, db: AsyncSession = Depends(get_db)) -> Auth:
     return Auth(session, user)
 
 
-async def verified(ctx: Auth = Depends(auth)) -> Auth:
+async def verified(ctx: Auth = Depends(auth), db: AsyncSession = Depends(get_db)) -> Auth:
     if ctx.user.status == "SUSPENDED":
         raise errors.AccountSuspended()
     if ctx.user.status != "ACTIVE":
         raise errors.AccountNotVerified()
+    # The launch gate: an active user's data is only served once they've come
+    # back through the Telegram Mini App this session (services.launch_gate).
+    state = await _gate_state(db)
+    if state.launch_gate and not await launch_gate.has_pass(ctx.user.id):
+        raise errors.LaunchGateRequired()
     await ratelimit.hit(ratelimit.USER_READS, ctx.user.id)
     return ctx
 

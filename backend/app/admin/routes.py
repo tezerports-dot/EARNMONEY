@@ -30,6 +30,7 @@ from app.models import (
     BankAccount,
     LedgerAccount,
     PayoutBatch,
+    RecruitmentPost,
     ReferralEdge,
     ReferralReward,
     ReferralSnapshot,
@@ -43,7 +44,7 @@ from app.models.ops import AuditLog
 from app.money import format_inr
 from app.phone import mask_phone, normalize_indian_mobile
 from app.security import crypto, ratelimit
-from app.services import audit, bots, campaign, jobs, ledger, referrals, sessions, withdrawals
+from app.services import audit, bots, campaign, jobs, ledger, recruitment, referrals, sessions, withdrawals
 from app.services import bank as bank_service
 from app.telegram.client import TelegramError
 
@@ -444,6 +445,8 @@ SETTING_TEXT_FIELDS = (
     "apk_download_url",
     "maintenance_message",
     "announcement_text",
+    "miniapp_short_name",
+    "adsgram_block_id",
 )
 SETTING_BOOL_FIELDS = (
     "maintenance_active",
@@ -451,6 +454,7 @@ SETTING_BOOL_FIELDS = (
     "ads_interstitial_enabled",
     "ads_rewarded_enabled",
     "accept_pending_join_requests",
+    "launch_gate_enabled",
 )
 
 
@@ -489,6 +493,9 @@ async def settings_save(
                 1440, max(5, _int(str(form.get("verification_session_minutes", "30")), "Session minutes"))
             )
             new["max_contact_mismatches"] = min(10, max(1, _int(str(form.get("max_contact_mismatches", "3")), "Mismatch limit")))
+            new["launch_gate_pass_seconds"] = min(
+                604800, max(60, _int(str(form.get("launch_gate_pass_seconds", "21600")), "Launch-gate pass seconds"))
+            )
             if new["min_app_version"] and not all(p.isdigit() for p in str(new["min_app_version"]).split(".")):
                 raise errors.ValidationFailed("Minimum app version looks like 1.0.0.")
         except errors.ValidationFailed as exc:
@@ -501,6 +508,62 @@ async def settings_save(
         await audit.record(db, ctx.actor, "settings.updated", "settings", {"changed": changed}, ip=client_ip(request))
     reset_gate_cache()
     return back("/settings", "saved")
+
+
+# --- Recruitment --------------------------------------------------------------------
+
+
+@router.get("/recruitment")
+async def recruitment_page(
+    request: Request, ctx: AdminContext = Depends(current_admin), db: AsyncSession = Depends(get_db)
+) -> HTMLResponse:
+    async with db.begin():
+        posts = await recruitment.list_all(db)
+        return page(request, "recruitment.html", ctx, posts=posts, error=None)
+
+
+@router.post("/recruitment/save")
+async def recruitment_save(
+    request: Request, ctx: AdminContext = Depends(current_admin), db: AsyncSession = Depends(get_db)
+) -> Response:
+    form = await request.form()
+    title = str(form.get("title", "")).strip()
+    description = str(form.get("description", "")).strip()
+    async with db.begin():
+        if not title or not description:
+            posts = await recruitment.list_all(db)
+            return page(request, "recruitment.html", ctx, posts=posts, error="A title and a description are required.")
+        post_id = str(form.get("id", "")).strip()
+        post = await db.get(RecruitmentPost, int(post_id)) if post_id.isdigit() else None
+        if post is None:
+            post = RecruitmentPost(title=title, description=description)
+            db.add(post)
+        post.title = title[:120]
+        post.description = description
+        post.location = str(form.get("location", "")).strip()[:120] or None
+        post.employment_type = str(form.get("employment_type", "")).strip()[:60] or None
+        post.apply_url = str(form.get("apply_url", "")).strip() or None
+        post.apply_email = str(form.get("apply_email", "")).strip() or None
+        post.sort_order = _int(str(form.get("sort_order", "0") or "0"), "Sort order")
+        post.is_open = form.get("is_open") == "on"
+        post.updated_at = timeutil.now()
+        await db.flush()
+        await audit.record(db, ctx.actor, "recruitment.saved", f"recruitment:{post.id}", ip=client_ip(request))
+    return back("/recruitment", "saved")
+
+
+@router.post("/recruitment/delete")
+async def recruitment_delete(
+    request: Request, ctx: AdminContext = Depends(current_admin), db: AsyncSession = Depends(get_db)
+) -> Response:
+    form = await request.form()
+    post_id = str(form.get("id", "")).strip()
+    async with db.begin():
+        post = await db.get(RecruitmentPost, int(post_id)) if post_id.isdigit() else None
+        if post is not None:
+            await db.delete(post)
+            await audit.record(db, ctx.actor, "recruitment.deleted", f"recruitment:{post_id}", ip=client_ip(request))
+    return back("/recruitment", "saved")
 
 
 # --- Bots and channels --------------------------------------------------------------

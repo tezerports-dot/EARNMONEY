@@ -27,6 +27,15 @@
   <label class="check"><input type="checkbox" name="ads_interstitial_enabled" {{ "checked" if s.ads_interstitial_enabled }}>Interstitial ads</label>
   <label class="check"><input type="checkbox" name="ads_rewarded_enabled" {{ "checked" if s.ads_rewarded_enabled }}>Rewarded ads</label>
   <label>Minimum seconds between interstitials (60 or more)</label><input name="ads_min_interstitial_interval_seconds" value="{{ s.ads_min_interstitial_interval_seconds }}" inputmode="numeric">
+  <h2>Telegram Mini App launch gate</h2>
+  <label class="check"><input type="checkbox" name="launch_gate_enabled" {{ "checked" if s.launch_gate_enabled }}>Require the Mini App on each app open</label>
+  <div class="help">When on, the app sends every user through the Mini App — where an Adsgram ad is shown — from their own verified Telegram account before it will show their data. The server enforces this: it can't be skipped by a modified app. Leave it off for a Play/App Store build, which won't allow a forced ad on launch.</div>
+  <label>Mini App short name</label><input name="miniapp_short_name" value="{{ s.miniapp_short_name or '' }}" maxlength="64">
+  <div class="help">The short name you gave the Mini App in @BotFather (/newapp) on the watcher bot. The deep link is https://t.me/&lt;watcher bot&gt;/&lt;short name&gt;.</div>
+  <label>Adsgram block id</label><input name="adsgram_block_id" value="{{ s.adsgram_block_id or '' }}" maxlength="64">
+  <div class="help">The block id from your Adsgram publisher account, shown inside the Mini App. Public, not a secret.</div>
+  <label>Pass lifetime (seconds, 60–604800)</label><input name="launch_gate_pass_seconds" value="{{ s.launch_gate_pass_seconds }}" inputmode="numeric">
+  <div class="help">How long one Mini App pass keeps the app usable on the server before it is required again. The app itself asks again on every reopen.</div>
   <h2>Verification</h2>
   <label class="check"><input type="checkbox" name="accept_pending_join_requests" {{ "checked" if s.accept_pending_join_requests }}>A pending join request counts as joining</label>
   <div class="help">Join requests are never approved automatically. Turn this off to require approved membership.</div>

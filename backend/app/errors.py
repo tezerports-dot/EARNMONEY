@@ -53,6 +53,11 @@ BankDetailsRequired = _error(422, "BANK_DETAILS_REQUIRED", "Add your bank detail
 InsufficientBalance = _error(422, "INSUFFICIENT_BALANCE", "That's more than your available balance.")
 BelowMinimum = _error(422, "BELOW_MINIMUM", "That's below the minimum withdrawal amount.")
 UpgradeRequired = _error(426, "UPGRADE_REQUIRED", "Please update the app to continue.")
+LaunchGateRequired = _error(428, "LAUNCH_GATE_REQUIRED", "Please reopen the app from Telegram to continue.")
+LaunchGateMismatch = _error(
+    403, "LAUNCH_GATE_MISMATCH", "Open the app's Telegram bot from the Telegram account you verified with."
+)
+LaunchGateInvalid = _error(400, "LAUNCH_GATE_INVALID", "That didn't work. Please start again from the app.")
 RateLimited = _error(429, "RATE_LIMITED", "Too many attempts. Please try again later.")
 Maintenance = _error(503, "MAINTENANCE", "We're doing some maintenance. Please try again soon.")
 VerificationUnavailable = _error(

@@ -1,7 +1,7 @@
 """All tables. Importing this module registers them on ``Base.metadata``."""
 
 from app.models.base import Base
-from app.models.config import AppSettings, Campaign, MembershipCounter
+from app.models.config import AppSettings, Campaign, MembershipCounter, RecruitmentPost
 from app.models.ledger import (
     BankAccount,
     LedgerAccount,
@@ -39,6 +39,7 @@ __all__ = [
     "LedgerTransaction",
     "MembershipCounter",
     "PayoutBatch",
+    "RecruitmentPost",
     "ReferralEdge",
     "ReferralReward",
     "ReferralSnapshot",
