@@ -58,7 +58,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       onboardingSeen: ref.read(prefsProvider).onboardingSeen,
       appVersion: ref.read(appVersionProvider),
       location: state.matchedLocation,
-      launchGateEnabled: ref.read(configProvider)?.config.launchGateEnabled ?? false,
+      launchGateEnabled: ref.read(configProvider)?.value?.config.launchGateEnabled ?? false,
       launchGatePassed: ref.read(gatePassedProvider),
     ),
     routes: [

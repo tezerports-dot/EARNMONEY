@@ -33,7 +33,7 @@ class _FutureFashionAppState extends ConsumerState<FutureFashionApp> with Widget
     // Coming back to the app: refresh dates, counters and maintenance state,
     // at most once a minute.
     if (state == AppLifecycleState.resumed) {
-      if (ref.read(configProvider)?.config.launchGateEnabled == true && ref.read(gatePassedProvider)) {
+      if (ref.read(configProvider)?.value?.config.launchGateEnabled == true && ref.read(gatePassedProvider)) {
         ref.read(gatePassedProvider.notifier).state = false;
       }
       if (DateTime.now().difference(_lastConfigLoad) > const Duration(minutes: 1)) {
