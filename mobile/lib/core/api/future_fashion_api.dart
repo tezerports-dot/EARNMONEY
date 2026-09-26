@@ -127,7 +127,7 @@ class HttpFutureFashionApi implements FutureFashionApi {
   @override
   Future<List<RecruitmentPost>> recruitment() async {
     final j = await _client.get('/v1/recruitment');
-    return j.list('posts').map(RecruitmentPost.fromJson).toList();
+    return (j['posts'] as List<dynamic>).map((e) => RecruitmentPost.fromJson(e as Map<String, dynamic>)).toList();
   }
 
   @override

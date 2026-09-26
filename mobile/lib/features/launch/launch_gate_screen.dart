@@ -89,7 +89,7 @@ class _LaunchGateScreenState extends ConsumerState<LaunchGateScreen> with Widget
         children: [ErrorView(error: _error!, onRetry: _load)],
       );
     }
-    final companyName = ref.watch(configProvider).valueOrNull?.config.companyName ?? 'Telegram';
+    final companyName = ref.watch(configProvider)?.config.companyName ?? 'Telegram';
     return AppScreen(
       children: [
         const SizedBox(height: Space.xxl),
