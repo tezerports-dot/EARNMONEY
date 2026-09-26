@@ -24,6 +24,10 @@ abstract interface class FutureFashionApi {
 
   Future<VerificationSession> openVerification();
   Future<VerificationSession> verificationStatus();
+  Future<LaunchChallenge> launchChallenge();
+  Future<LaunchStatus> launchStatus();
+
+  Future<List<RecruitmentPost>> recruitment();
 
   Future<Dashboard> dashboard();
   Future<ReferralSummary> referralSummary();
@@ -112,6 +116,19 @@ class HttpFutureFashionApi implements FutureFashionApi {
   @override
   Future<VerificationSession> verificationStatus() async =>
       VerificationSession.fromJson(await _client.get('/v1/telegram/verification-session'));
+
+  @override
+  Future<LaunchChallenge> launchChallenge() async =>
+      LaunchChallenge.fromJson(await _client.post('/v1/launch/challenge'));
+
+  @override
+  Future<LaunchStatus> launchStatus() async => LaunchStatus.fromJson(await _client.post('/v1/launch/status'));
+
+  @override
+  Future<List<RecruitmentPost>> recruitment() async {
+    final j = await _client.get('/v1/recruitment');
+    return j.list('posts').map(RecruitmentPost.fromJson).toList();
+  }
 
   @override
   Future<Dashboard> dashboard() async => Dashboard.fromJson(await _client.get('/v1/dashboard'));

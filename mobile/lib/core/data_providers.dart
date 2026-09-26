@@ -22,3 +22,7 @@ final shareInfoProvider = FutureProvider.autoDispose<ShareInfo>((ref) => ref.wat
 final directPreviewProvider = FutureProvider.autoDispose<Paged<DirectReferral>>(
   (ref) => ref.watch(apiProvider).directReferrals(limit: 3),
 );
+
+final recruitmentProvider = FutureProvider.autoDispose<List<RecruitmentPost>>(
+  (ref) => ref.watch(apiProvider).recruitment(),
+);

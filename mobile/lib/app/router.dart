@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../core/auth/session_controller.dart';
 import '../core/config/config_controller.dart';
+import '../core/launch/launch_gate_controller.dart';
 import '../core/providers.dart';
 import '../features/apk_sharing/share_screen.dart';
 import '../features/auth/login_screen.dart';
@@ -12,7 +13,9 @@ import '../features/campaign/celebration_screen.dart';
 import '../features/campaign/how_it_works_screen.dart';
 import '../features/campaign/membership_screen.dart';
 import '../features/home/home_screen.dart';
+import '../features/launch/launch_gate_screen.dart';
 import '../features/legal/legal_screens.dart';
+import '../features/recruitment/recruitment_screen.dart';
 import '../features/onboarding/onboarding_screen.dart';
 import '../features/profile/profile_screen.dart';
 import '../features/referrals/direct_referrals_screen.dart';
@@ -33,7 +36,8 @@ class _RouterRefresh extends ChangeNotifier {
   _RouterRefresh(Ref ref) {
     ref
       ..listen(sessionProvider, (_, _) => notifyListeners())
-      ..listen(configProvider, (_, _) => notifyListeners());
+      ..listen(configProvider, (_, _) => notifyListeners())
+      ..listen(gatePassedProvider, (_, _) => notifyListeners());
   }
 }
 
@@ -54,6 +58,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       onboardingSeen: ref.read(prefsProvider).onboardingSeen,
       appVersion: ref.read(appVersionProvider),
       location: state.matchedLocation,
+      launchGateEnabled: ref.read(configProvider).valueOrNull?.config.launchGateEnabled ?? false,
+      launchGatePassed: ref.read(gatePassedProvider),
     ),
     routes: [
       page('/splash', () => const SplashScreen()),
@@ -66,6 +72,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       page('/signup', () => const SignupScreen()),
       page('/verify', () => const VerifyScreen()),
       page('/verify/success', () => const VerifySuccessScreen()),
+      page('/gate', () => const LaunchGateScreen()),
       page('/terms', () => const LegalScreen(document: 'terms', title: 'Terms of use')),
       page('/privacy', () => const LegalScreen(document: 'privacy', title: 'Privacy notice')),
       page('/rules', () => const RulesScreen()),
@@ -115,6 +122,9 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           StatefulShellBranch(
             routes: [GoRoute(path: '/profile', builder: (_, _) => const ProfileScreen())],
+          ),
+          StatefulShellBranch(
+            routes: [GoRoute(path: '/recruitment', builder: (_, _) => const RecruitmentScreen())],
           ),
         ],
       ),
