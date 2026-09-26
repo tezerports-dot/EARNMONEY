@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}User {{ user.public_id }}{% endblock %}
+{% block content %}
+<h1>User {{ user.public_id }}</h1>
+<div class="grid">
+  <div class="card"><div class="muted">Status</div><div class="n">{{ user.status }}</div><div class="muted">Phone {{ user.phone|mask }}</div></div>
+  <div class="card"><div class="muted">Joined / verified</div><div>{{ user.created_at|ist }}</div><div>{{ user.verified_at|ist }}</div></div>
+  <div class="card"><div class="muted">Referred by</div><div class="n">{% if referrer %}<a class="ok" href="/admin/users/{{ referrer.public_id }}">{{ referrer.public_id }}</a>{% else %}—{% endif %}</div></div>
+  <div class="card"><div class="muted">Direct referrals</div><div class="n">{{ direct_verified }}</div><div class="muted">{{ direct_pending }} still verifying</div></div>
+  <div class="card"><div class="muted">Pending / available</div><div class="n">{{ pending_balance|inr }}</div><div class="muted">{{ available_balance|inr }} available</div></div>
+  <div class="card"><div class="muted">Bank</div>{% if bank %}<div>{{ bank.account_holder_name }}</div><div class="muted">{{ bank_masked }} · {{ bank.ifsc }}</div>{% else %}<div class="muted">Not added</div>{% endif %}</div>
+</div>
+{% if snapshot %}<h2>Referral snapshot ({{ snapshot.generated_at|ist }})</h2>
+<table><tr><th>Level</th><th>Users</th><th>Income</th></tr>
+<tr><td>1</td><td>{{ snapshot.level_1_count }}</td><td>{{ snapshot.level_1_income_paise|inr }}</td></tr>
+<tr><td>2</td><td>{{ snapshot.level_2_count }}</td><td>{{ snapshot.level_2_income_paise|inr }}</td></tr>
+<tr><td>3</td><td>{{ snapshot.level_3_count }}</td><td>{{ snapshot.level_3_income_paise|inr }}</td></tr>
+<tr><td>4</td><td>{{ snapshot.level_4_count }}</td><td>{{ snapshot.level_4_income_paise|inr }}</td></tr></table>{% endif %}
+<h2>Fraud flags</h2>
+<table><tr><th>Kind</th><th>Details</th><th>Raised</th><th>Resolved</th></tr>
+{% for f in flags %}<tr><td class="warn">{{ f.kind }}</td><td class="muted">{{ f.details }}</td><td>{{ f.created_at|ist }}</td><td>{{ f.resolved_at|ist }}</td></tr>{% else %}<tr><td colspan="4" class="muted">None</td></tr>{% endfor %}</table>
+<h2>Withdrawals</h2>
+<table><tr><th>ID</th><th>Amount</th><th>Status</th><th>Requested</th><th>Reference</th></tr>
+{% for w in withdrawals %}<tr><td>WD-{{ w.public_id }}</td><td>{{ w.amount_paise|inr }}</td><td>{{ w.status }}</td><td>{{ w.requested_at|ist }}</td><td>{{ w.bank_reference or w.failure_reason or "" }}</td></tr>{% else %}<tr><td colspan="5" class="muted">None</td></tr>{% endfor %}</table>
+<h2>Actions</h2>
+{% if user.status == "SUSPENDED" %}
+<form method="post" action="/admin/users/{{ user.public_id }}/unsuspend"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Restore account</button></form>
+{% else %}
+<form method="post" action="/admin/users/{{ user.public_id }}/suspend"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger">Suspend</button></form>
+{% endif %}
+{% endblock %}

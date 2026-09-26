@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The app is always dark, so there is no values-night variant. -->
+
+    <!-- While the process starts: the brand mark on ink until Flutter's first frame. -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+    </style>
+
+    <!-- Behind the Flutter UI once it runs. Ink, so nothing flashes white. -->
+    <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowBackground">@color/ink</item>
+    </style>
+</resources>

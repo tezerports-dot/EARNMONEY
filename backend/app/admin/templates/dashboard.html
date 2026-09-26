@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+<div class="grid">
+  <div class="card"><div class="muted">Campaign</div><div class="n">{{ gates.status }}</div><div class="muted">Sign-ups {{ "open" if gates.signups_open else "closed" }} · rewards {{ "open" if gates.rewards_open else "closed" }}</div></div>
+  <div class="card"><div class="muted">Verified members</div><div class="n">{{ "{:,}".format(verified) }}</div><div class="muted">of {{ "{:,}".format(campaign.capacity) }} capacity</div></div>
+  <div class="card"><div class="muted">Waiting for verification</div><div class="n">{{ "{:,}".format(pending) }}</div></div>
+  <div class="card"><div class="muted">Suspended</div><div class="n">{{ "{:,}".format(suspended) }}</div></div>
+  <div class="card"><div class="muted">Promotional pool left</div><div class="n">{{ pool|inr }}</div><div class="muted">funded {{ funded|inr }}</div></div>
+  <div class="card"><div class="muted">Rewards credited</div><div class="n">{{ rewarded|inr }}</div></div>
+  <div class="card"><div class="muted">Withdrawals</div><div class="n">{{ withdrawals.get("REQUESTED", 0) }} requested</div><div class="muted">{{ withdrawals.get("PROCESSING", 0) }} processing · {{ withdrawals.get("PAID", 0) }} paid · {{ withdrawals.get("FAILED", 0) }} failed</div></div>
+  <div class="card"><div class="muted">Open fraud flags</div><div class="n {{ 'warn' if open_flags else '' }}">{{ open_flags }}</div></div>
+  <div class="card"><div class="muted">Job queue</div><div class="n">{{ queue.get("QUEUED", 0) }} queued</div><div class="muted">{{ queue.get("FAILED", 0) }} failed · oldest ready {{ queue.oldest_ready_age_seconds }}s</div></div>
+</div>
+{% if not gates.rewards_open and gates.status == "ACTIVE" %}<p class="warn">Rewards are closed because the promotional pool is below one reward. Record funding on the Campaign page.</p>{% endif %}
+<h2>Bots</h2>
+<table><tr><th>Bot</th><th>Role</th><th>Health</th><th>Enabled</th><th>Last OK</th></tr>
+{% for b in bots %}<tr><td>@{{ b.username }}</td><td>{{ b.role }}</td><td class="{{ 'ok' if b.health == 'HEALTHY' else 'warn' }}">{{ b.health }}</td><td>{{ "yes" if b.enabled else "no" }}</td><td>{{ b.last_ok_at|ist }}</td></tr>
+{% else %}<tr><td colspan="5" class="muted">No bots yet. Add a watcher and at least one verifier on the Bots page.</td></tr>{% endfor %}
+</table>
+{% endblock %}

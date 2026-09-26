@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Recruitment{% endblock %}
+{% block content %}
+<h1>Recruitment</h1>
+<p class="help">Job openings the app shows on its Recruitment tab. Only posts marked open appear in the app. Nothing here is shown until you add it — the tab is empty by default.</p>
+
+{% macro form(p) %}
+<form method="post" action="/admin/recruitment/save" class="card" style="margin-bottom:16px">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="id" value="{{ p.id if p else '' }}">
+  <label>Title</label><input name="title" value="{{ p.title if p else '' }}" maxlength="120" required>
+  <div class="inline">
+    <div style="flex:1"><label>Location</label><input name="location" value="{{ p.location if p and p.location else '' }}" maxlength="120"></div>
+    <div style="flex:1"><label>Type</label><input name="employment_type" value="{{ p.employment_type if p and p.employment_type else '' }}" maxlength="60" placeholder="Full-time"></div>
+    <div style="width:120px"><label>Sort</label><input name="sort_order" value="{{ p.sort_order if p else 0 }}" inputmode="numeric"></div>
+  </div>
+  <label>Description</label><textarea name="description" rows="4" required>{{ p.description if p else '' }}</textarea>
+  <div class="inline">
+    <div style="flex:1"><label>Apply URL</label><input name="apply_url" value="{{ p.apply_url if p and p.apply_url else '' }}"></div>
+    <div style="flex:1"><label>Apply email</label><input name="apply_email" value="{{ p.apply_email if p and p.apply_email else '' }}"></div>
+  </div>
+  <label class="check"><input type="checkbox" name="is_open" {{ "checked" if (p.is_open if p else True) }}>Open (shown in the app)</label>
+  <p><button>{{ "Save changes" if p else "Add opening" }}</button>
+  {% if p %}<button class="danger" formaction="/admin/recruitment/delete">Delete</button>{% endif %}</p>
+</form>
+{% endmacro %}
+
+<h2>Add an opening</h2>
+{{ form(none) }}
+
+<h2>Current openings</h2>
+{% if posts %}
+  {% for p in posts %}{{ form(p) }}{% endfor %}
+{% else %}
+  <p class="muted">No openings yet.</p>
+{% endif %}
+{% endblock %}

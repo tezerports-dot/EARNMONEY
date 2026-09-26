@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Withdrawals{% endblock %}
+{% block content %}
+<h1>Withdrawals</h1>
+<p class="inline">{% for s in ["REQUESTED", "PROCESSING", "PAID", "FAILED"] %}<a class="button {{ '' if s == status else 'secondary' }}" style="{{ '' if s == status else 'background:transparent;color:inherit;border:1px solid #2E2850' }}" href="/admin/withdrawals?status={{ s }}">{{ s.title() }}</a>{% endfor %}</p>
+{% if status == "REQUESTED" %}
+<form method="post" action="/admin/withdrawals/batch"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Create a payout batch from requested withdrawals</button></form>
+<p class="help">A batch moves requests to Processing. Download its file, pay it at the bank, then mark each row paid (with the UTR) or failed. Requests from users with an open <a class="ok" href="/admin/flags">risk flag</a>, or a suspended account, are held back until the flag is resolved or the suspension lifted.</p>
+{% endif %}
+<table><tr><th>ID</th><th>User</th><th>Amount</th><th>Bank</th><th>Requested</th><th>{% if status == "PROCESSING" %}Result{% else %}Details{% endif %}</th></tr>
+{% for w, public_id in rows %}<tr>
+  <td>WD-{{ w.public_id }}{% if w.user_id in flagged %}<br><span class="warn">flagged{% if status == "REQUESTED" %}: held until resolved{% endif %}</span>{% endif %}</td>
+  <td><a class="ok" href="/admin/users/{{ public_id }}">{{ public_id }}</a></td>
+  <td>{{ w.amount_paise|inr }}</td>
+  <td class="muted">{{ w.account_holder_name }}<br>XXXX {{ w.account_number_last4 }} · {{ w.ifsc }}</td>
+  <td>{{ w.requested_at|ist }}</td>
+  <td>{% if status == "PROCESSING" %}
+    <form method="post" action="/admin/withdrawals/WD-{{ w.public_id }}/paid" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="bank_reference" placeholder="UTR" required maxlength="64"><button>Paid</button></form>
+    <form method="post" action="/admin/withdrawals/WD-{{ w.public_id }}/failed" class="inline" style="margin-top:6px"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="reason" placeholder="Why it failed" maxlength="200"><button class="danger">Failed</button></form>
+  {% else %}{{ w.bank_reference or w.failure_reason or "" }}{% endif %}</td>
+</tr>{% else %}<tr><td colspan="6" class="muted">Nothing here.</td></tr>{% endfor %}
+</table>
+<h2>Recent batches</h2>
+<table><tr><th>Batch</th><th>Requests</th><th>Total</th><th>Created</th><th></th></tr>
+{% for b in batches %}<tr><td>#{{ b.id }}</td><td>{{ b.request_count }}</td><td>{{ b.total_paise|inr }}</td><td>{{ b.created_at|ist }} by {{ b.created_by }}</td><td><a class="ok" href="/admin/batches/{{ b.id }}.csv">Download file</a></td></tr>{% else %}<tr><td colspan="5" class="muted">None</td></tr>{% endfor %}
+</table>
+<p class="help">Batch files contain full account numbers. Every download is recorded in the audit log.</p>
+{% endblock %}

@@ -1,0 +1,165 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend · lint, tests, migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ff
+          POSTGRES_PASSWORD: ff_ci_only # throwaway CI container, not a secret
+          POSTGRES_DB: ff_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ff -d ff_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      FF_TEST_DATABASE_URL: postgresql+asyncpg://ff:ff_ci_only@127.0.0.1:5432/ff_test
+      FF_TEST_REDIS_URL: redis://127.0.0.1:6379/15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12" # the version in backend/Dockerfile
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install
+        run: pip install -e ".[test]" "ruff==0.16.8"
+      - name: Lint
+        run: |
+          ruff check .
+          ruff format --check .
+      - name: Tests
+        run: python -m pytest tests/ -q
+      - name: Migrations roll back and apply again
+        env:
+          FF_DATABASE_URL: ${{ env.FF_TEST_DATABASE_URL }}
+        run: |
+          alembic downgrade base
+          alembic upgrade head
+
+  app:
+    name: App · format, analyze, tests, release APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+          cache-dependency-path: |
+            mobile/android/*.gradle.kts
+            mobile/android/app/*.gradle.kts
+            mobile/android/gradle/wrapper/gradle-wrapper.properties
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.5"
+          channel: stable
+          cache: true
+      - name: Dependencies
+        run: flutter pub get
+      - name: Format
+        run: dart format --output=none --set-exit-if-changed lib test
+      - name: Analyze
+        run: flutter analyze
+      - name: Tests
+        run: flutter test
+      - name: Release APK (prod flavor)
+        # No signing secrets here, so the APK is signed with a throwaway debug
+        # key: good for testing, never for sharing (docs/RELEASE.md).
+        run: flutter build apk --release --flavor prod --dart-define-from-file=config/prod.json
+      - name: A shared APK with a referral code still verifies (JVM tests, incl. this build)
+        working-directory: mobile/android
+        run: ./gradlew --no-daemon :app:testProdDebugUnitTest -PrealApk="$GITHUB_WORKSPACE/mobile/build/app/outputs/flutter-apk/app-prod-release.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: future-fashion-prod-apk-TEST-SIGNED
+          path: mobile/build/app/outputs/flutter-apk/app-prod-release.apk
+          retention-days: 14
+          if-no-files-found: error
+
+  e2e:
+    name: End to end · app against the real server
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ff
+          POSTGRES_PASSWORD: ff_ci_only # throwaway CI container, not a secret
+          POSTGRES_DB: ff_e2e
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ff -d ff_e2e"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Backend
+        working-directory: backend
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -e ".[test]"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.5"
+          channel: stable
+          cache: true
+      - name: App dependencies
+        working-directory: mobile
+        run: flutter pub get
+      - name: Signup, Telegram verification, referral, wallet, withdrawal and payout
+        env:
+          FF_E2E_DATABASE_URL: postgresql+asyncpg://ff:ff_ci_only@127.0.0.1:5432/ff_e2e
+        run: e2e/run.sh
+      - name: Security probe (auth, IDOR, injection, CSRF, replay, headers)
+        env:
+          PGPASSWORD: ff_ci_only
+          FF_SEC_DATABASE_URL: postgresql+asyncpg://ff:ff_ci_only@127.0.0.1:5432/ff_sec
+        run: |
+          createdb -h 127.0.0.1 -U ff ff_sec
+          security/run.sh
+      - name: Server logs
+        if: failure()
+        run: tail -n 200 e2e/.run/*.log security/.run/*.log

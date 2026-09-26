@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+<form method="post" action="/admin/settings">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <h2>Company</h2>
+  <label>Name shown in the app</label><input name="company_name" value="{{ s.company_name }}" maxlength="100">
+  <label>Registered legal name</label><input name="company_legal_name" value="{{ s.company_legal_name or '' }}" maxlength="200">
+  <label>Registered address</label><textarea name="company_address" rows="2">{{ s.company_address or '' }}</textarea>
+  <label>Support email</label><input name="support_email" value="{{ s.support_email or '' }}">
+  <label>Support URL</label><input name="support_url" value="{{ s.support_url or '' }}">
+  <label>Terms URL</label><input name="terms_url" value="{{ s.terms_url or '' }}">
+  <label>Privacy URL</label><input name="privacy_url" value="{{ s.privacy_url or '' }}">
+  <h2>App</h2>
+  <label>Minimum app version</label><input name="min_app_version" value="{{ s.min_app_version }}" maxlength="20">
+  <div class="help">Older apps are asked to update and shown the download link.</div>
+  <label>APK download URL</label><input name="apk_download_url" value="{{ s.apk_download_url or '' }}">
+  <label class="check"><input type="checkbox" name="maintenance_active" {{ "checked" if s.maintenance_active }}>Maintenance mode</label>
+  <label>Maintenance message</label><input name="maintenance_message" value="{{ s.maintenance_message or '' }}" maxlength="300">
+  <label>Maintenance ends (IST, optional)</label><input type="datetime-local" name="maintenance_until" value="{{ maintenance_until }}">
+  <label>Announcement banner</label><input name="announcement_text" value="{{ s.announcement_text or '' }}" maxlength="300">
+  <label>Announcement style</label>
+  <select name="announcement_tone">{% for t in ["info", "success", "warning"] %}<option {{ "selected" if s.announcement_tone == t }}>{{ t }}</option>{% endfor %}</select>
+  <h2>Ads</h2>
+  <label class="check"><input type="checkbox" name="ads_banner_enabled" {{ "checked" if s.ads_banner_enabled }}>Banner ads</label>
+  <label class="check"><input type="checkbox" name="ads_interstitial_enabled" {{ "checked" if s.ads_interstitial_enabled }}>Interstitial ads</label>
+  <label class="check"><input type="checkbox" name="ads_rewarded_enabled" {{ "checked" if s.ads_rewarded_enabled }}>Rewarded ads</label>
+  <label>Minimum seconds between interstitials (60 or more)</label><input name="ads_min_interstitial_interval_seconds" value="{{ s.ads_min_interstitial_interval_seconds }}" inputmode="numeric">
+  <h2>Telegram Mini App launch gate</h2>
+  <label class="check"><input type="checkbox" name="launch_gate_enabled" {{ "checked" if s.launch_gate_enabled }}>Require the Mini App on each app open</label>
+  <div class="help">When on, the app sends every user through the Mini App — where an Adsgram ad is shown — from their own verified Telegram account before it will show their data. The server enforces this: it can't be skipped by a modified app. Leave it off for a Play/App Store build, which won't allow a forced ad on launch.</div>
+  <label>Mini App short name</label><input name="miniapp_short_name" value="{{ s.miniapp_short_name or '' }}" maxlength="64">
+  <div class="help">The short name you gave the Mini App in @BotFather (/newapp) on the watcher bot. The deep link is https://t.me/&lt;watcher bot&gt;/&lt;short name&gt;.</div>
+  <label>Adsgram block id</label><input name="adsgram_block_id" value="{{ s.adsgram_block_id or '' }}" maxlength="64">
+  <div class="help">The block id from your Adsgram publisher account, shown inside the Mini App. Public, not a secret.</div>
+  <label>Pass lifetime (seconds, 60–604800)</label><input name="launch_gate_pass_seconds" value="{{ s.launch_gate_pass_seconds }}" inputmode="numeric">
+  <div class="help">How long one Mini App pass keeps the app usable on the server before it is required again. The app itself asks again on every reopen.</div>
+  <h2>Verification</h2>
+  <label class="check"><input type="checkbox" name="accept_pending_join_requests" {{ "checked" if s.accept_pending_join_requests }}>A pending join request counts as joining</label>
+  <div class="help">Join requests are never approved automatically. Turn this off to require approved membership.</div>
+  <label>Verification link lifetime (minutes)</label><input name="verification_session_minutes" value="{{ s.verification_session_minutes }}" inputmode="numeric">
+  <label>Wrong phone numbers allowed per link</label><input name="max_contact_mismatches" value="{{ s.max_contact_mismatches }}" inputmode="numeric">
+  <p><button>Save settings</button></p>
+</form>
+{% endblock %}

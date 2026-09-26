@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Reports{% endblock %}
+{% block content %}
+<h1>Reports</h1>
+<p class="help">Every headline number, computed live from the ledger and the database. Nothing here is seeded or estimated. Money is stored as integer paise and shown in rupees.</p>
+
+<h2>Members</h2>
+<div class="grid">
+  <div class="card"><div class="muted">Verified members</div><div class="n">{{ "{:,}".format(verified_count) }}</div><div class="muted">of {{ "{:,}".format(c.capacity) }} capacity ({{ "%.4f"|format(100 * verified_count / c.capacity) }}%)</div></div>
+  <div class="card"><div class="muted">Accounts total</div><div class="n">{{ "{:,}".format(total_users) }}</div><div class="muted">every row in users</div></div>
+  <div class="card"><div class="muted">Active</div><div class="n ok">{{ "{:,}".format(users_by_status.get("ACTIVE", 0)) }}</div></div>
+  <div class="card"><div class="muted">Waiting for verification</div><div class="n">{{ "{:,}".format(users_by_status.get("PENDING_VERIFICATION", 0)) }}</div></div>
+  <div class="card"><div class="muted">Suspended</div><div class="n {{ 'warn' if users_by_status.get('SUSPENDED', 0) else '' }}">{{ "{:,}".format(users_by_status.get("SUSPENDED", 0)) }}</div></div>
+  <div class="card"><div class="muted">New in last 7 days</div><div class="n">{{ "{:,}".format(signups_7d) }} signed up</div><div class="muted">{{ "{:,}".format(verified_7d) }} verified</div></div>
+</div>
+
+<h2>Referral spread and rewards</h2>
+<p class="help">Only level 1 pays — ₹{{ (reward_each // 100) }} for each direct referral who verifies. Levels 2–4 are counted so the tree's reach is visible; their reward is fixed at ₹0 in server code and by database constraints, because paying indirect referrals would be a money-circulation scheme. The “Total reward” column is reward-per-user × qualified referrals at that level.</p>
+<table>
+  <tr><th>Layer</th><th style="text-align:right">Qualified users</th><th style="text-align:right">Reward / user</th><th style="text-align:right">Total reward</th></tr>
+  {% for l in levels %}
+  <tr>
+    <td>Level {{ l.level }}{% if l.level == 1 %} <span class="muted">(direct)</span>{% endif %}</td>
+    <td style="text-align:right">{{ "{:,}".format(edges_by_level.get(l.level, 0)) }}</td>
+    <td style="text-align:right">{{ l.reward_per_user_paise|inr }}{% if l.level != 1 %} <span class="muted">locked</span>{% endif %}</td>
+    <td style="text-align:right">{{ (l.reward_per_user_paise * edges_by_level.get(l.level, 0))|inr }}</td>
+  </tr>
+  {% endfor %}
+</table>
+<div class="grid">
+  <div class="card"><div class="muted">Rewards credited (ledger)</div><div class="n">{{ reward_total|inr }}</div><div class="muted">{{ "{:,}".format(reward_count) }} reward records, all level 1</div></div>
+  <div class="card"><div class="muted">Level-1 reward each</div><div class="n">{{ reward_each|inr }}</div></div>
+</div>
+
+<h2>Money</h2>
+<div class="grid">
+  <div class="card"><div class="muted">Promotional pool funded</div><div class="n">{{ funded|inr }}</div></div>
+  <div class="card"><div class="muted">Pool left</div><div class="n">{{ pool|inr }}</div></div>
+  <div class="card"><div class="muted">Committed to users</div><div class="n">{{ spent|inr }}</div><div class="muted">funded − pool left</div></div>
+  <div class="card"><div class="muted">Users' pending balance</div><div class="n">{{ pending_money|inr }}</div><div class="muted">unlocks on the payout date</div></div>
+  <div class="card"><div class="muted">Users' available balance</div><div class="n">{{ available_money|inr }}</div><div class="muted">withdrawable now</div></div>
+</div>
+
+<h2>Withdrawals</h2>
+<table>
+  <tr><th>Status</th><th style="text-align:right">Requests</th><th style="text-align:right">Amount</th></tr>
+  {% for s in ["REQUESTED", "PROCESSING", "PAID", "FAILED"] %}
+  <tr>
+    <td>{{ s|capitalize }}</td>
+    <td style="text-align:right">{{ "{:,}".format(withdrawals_by_status.get(s, (0, 0))[0]) }}</td>
+    <td style="text-align:right">{{ withdrawals_by_status.get(s, (0, 0))[1]|inr }}</td>
+  </tr>
+  {% endfor %}
+</table>
+
+<h2>Top referrers</h2>
+<p class="help">The ten accounts with the most qualified direct referrals. Only the public reference id is shown — never a phone number.</p>
+<table>
+  <tr><th>Reference</th><th style="text-align:right">Direct referrals</th><th style="text-align:right">Level-1 reward</th></tr>
+  {% for r in top_referrers %}
+  <tr><td>{{ r.public_id }}</td><td style="text-align:right">{{ "{:,}".format(r.n) }}</td><td style="text-align:right">{{ (reward_each * r.n)|inr }}</td></tr>
+  {% else %}
+  <tr><td colspan="3" class="muted">No qualified referrals yet.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

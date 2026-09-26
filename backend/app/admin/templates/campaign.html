@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Campaign{% endblock %}
+{% block content %}
+<h1>Campaign</h1>
+<form method="post" action="/admin/campaign">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label>Name</label><input name="name" value="{{ c.name }}" maxlength="100">
+  <label>Starts (IST)</label><input type="datetime-local" name="starts_at" value="{{ dates.starts_at }}" required>
+  <label>Ends (IST)</label><input type="datetime-local" name="ends_at" value="{{ dates.ends_at }}" required>
+  <label>Brand reveal (IST)</label><input type="datetime-local" name="brand_reveal_at" value="{{ dates.brand_reveal_at }}" required>
+  <label>Launch (IST)</label><input type="datetime-local" name="launch_at" value="{{ dates.launch_at }}" required>
+  <label>Payout date (IST)</label><input type="datetime-local" name="payout_opens_at" value="{{ dates.payout_opens_at }}" required>
+  <div class="help">Rewards stay pending until this moment; users can withdraw from then.</div>
+  <label>Brand name</label><input name="brand_name" value="{{ c.brand_name or '' }}" maxlength="100">
+  <div class="help">The app only shows it from the brand reveal time.</div>
+  <label>Referral rewards (₹ per verified referral, by level)</label>
+  <table class="levels">
+    <tr><th>Level 1 (direct)</th><td><input name="level_1_reward_rupees" value="{{ c.level_1_reward_paise // 100 }}" inputmode="numeric" required></td></tr>
+    <tr><th>Level 2</th><td><input value="{{ c.level_2_reward_paise // 100 }}" disabled> <span class="muted">locked at ₹0</span></td></tr>
+    <tr><th>Level 3</th><td><input value="{{ c.level_3_reward_paise // 100 }}" disabled> <span class="muted">locked at ₹0</span></td></tr>
+    <tr><th>Level 4</th><td><input value="{{ c.level_4_reward_paise // 100 }}" disabled> <span class="muted">locked at ₹0</span></td></tr>
+  </table>
+  <div class="help">Level 1 applies to new rewards only; rewards already credited keep their amount. Levels 2–4 are counted in the table but never pay — the amount is fixed at ₹0 in the database, because paying for indirect referrals is a money-circulation scheme. See <a class="ok" href="/admin/reports">Reports</a>.</div>
+  <label>Minimum withdrawal (₹)</label><input name="min_withdrawal_rupees" value="{{ c.min_withdrawal_paise // 100 }}" inputmode="numeric" required>
+  <label>Capacity (members)</label><input name="capacity" value="{{ c.capacity }}" inputmode="numeric" required>
+  <label class="check"><input type="checkbox" name="signups_open" {{ "checked" if c.signups_open }}>Sign-ups open</label>
+  <label class="check"><input type="checkbox" name="paused" {{ "checked" if c.paused }}>Paused (no sign-ups, no new rewards)</label>
+  <label class="check"><input type="checkbox" name="show_promo_allocation" {{ "checked" if c.show_promo_allocation }}>Show the promotional allocation in the app</label>
+  <div class="help">When shown, the app displays the total recorded below — never a typed-in figure.</div>
+  <p><button>Save campaign</button></p>
+</form>
+
+<h2>Promotional pool</h2>
+<p>Funded: <strong>{{ funded|inr }}</strong> · Left: <strong>{{ pool|inr }}</strong></p>
+<p class="help">Rewards are paid from this pool. When it runs out, new rewards stop and the app shows that rewards are closed. Record only money that is really set aside.</p>
+<form method="post" action="/admin/campaign/fund" class="inline">
+  <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="nonce" value="{{ nonce }}">
+  <input name="amount_rupees" placeholder="Amount in ₹" inputmode="numeric" required>
+  <input name="memo" placeholder="Note (e.g. board approval ref)" maxlength="200">
+  <button>Record funding</button>
+</form>
+{% endblock %}

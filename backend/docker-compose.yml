@@ -1,0 +1,70 @@
+# Production-style stack on one server: HTTPS (Caddy), API, worker,
+# PostgreSQL and Redis. See docs/SETUP.md for the step-by-step guide.
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on: [api]
+
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      FF_TRUST_PROXY_HEADERS: "true"
+      # Connect as the DML-only role, not the owner (docs/SECURITY.md).
+      FF_DATABASE_URL: postgresql+asyncpg://${APP_DB_USER:-futurefashion_app}:${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}@postgres:5432/futurefashion
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_started }
+
+  worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      FF_DATABASE_URL: postgresql+asyncpg://${APP_DB_USER:-futurefashion_app}:${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}@postgres:5432/futurefashion
+    command: ["python", "-m", "app.cli", "worker"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_started }
+
+  migrate:
+    build: .
+    env_file: .env
+    environment:
+      # ensure-app-role runs as the owner (FF_DATABASE_URL from .env) and needs
+      # the app role's name and password to create/refresh it before migrating.
+      FF_APP_DB_USER: ${APP_DB_USER:-futurefashion_app}
+      FF_APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}
+    command: ["sh", "-c", "python -m app.cli ensure-app-role && alembic upgrade head"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: futurefashion
+      POSTGRES_USER: futurefashion
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U futurefashion"]
+      interval: 5s
+      retries: 20
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+
+volumes:
+  postgres_data:
+  caddy_data:

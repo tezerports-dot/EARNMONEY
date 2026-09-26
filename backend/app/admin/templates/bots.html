@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Bots{% endblock %}
+{% block content %}
+<h1>Telegram bots</h1>
+<p class="help">One <strong>watcher</strong> bot must be an admin (with “invite users”) in every required channel; it records join requests. <strong>Verifier</strong> bots talk to users; add as many as you need. Tokens are stored encrypted and never shown again.</p>
+<table><tr><th>Bot</th><th>Role</th><th>Health</th><th>Weight</th><th>Enabled</th><th>Last error</th><th></th></tr>
+{% for b in bots %}<tr>
+  <td>@{{ b.username }}</td><td>{{ b.role }}</td>
+  <td class="{{ 'ok' if b.health == 'HEALTHY' else 'warn' }}">{{ b.health }}{% if b.rate_limited_until %}<br><span class="muted">until {{ b.rate_limited_until|ist }}</span>{% endif %}</td>
+  <td>{{ b.weight }}</td><td>{{ "yes" if b.enabled else "no" }}</td>
+  <td class="muted">{{ b.last_error or "" }}</td>
+  <td><form method="post" action="/admin/bots/{{ b.id }}/toggle"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">{{ "Disable" if b.enabled else "Enable" }}</button></form></td>
+</tr>{% else %}<tr><td colspan="7" class="muted">No bots yet.</td></tr>{% endfor %}
+</table>
+<h2>Add or update a bot</h2>
+<form method="post" action="/admin/bots" autocomplete="off">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label>Token from @BotFather</label><input name="token" required maxlength="100">
+  <label>Role</label><select name="role"><option value="VERIFIER">Verifier</option><option value="WATCHER">Watcher</option></select>
+  <label>Weight (1–100, share of new verifications)</label><input name="weight" value="1" inputmode="numeric">
+  <p class="help">The webhook is registered at {{ public_base_url }}/telegram/webhook/… with a secret only this server knows.</p>
+  <p><button>Add bot</button></p>
+</form>
+{% endblock %}

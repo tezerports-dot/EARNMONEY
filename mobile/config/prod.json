@@ -1,0 +1,8 @@
+{
+  "ENV": "production",
+  "API_BASE_URL": "https://futurefashion.example",
+  "WEB_HOST": "futurefashion.example",
+  "ADMOB_BANNER_ID": "",
+  "ADMOB_INTERSTITIAL_ID": "",
+  "ADMOB_REWARDED_ID": ""
+}

@@ -1,374 +1,167 @@
-# Setup guide
+# Server setup
 
-**For someone who has never written code.** Follow it top to bottom. Every
-command is meant to be copied and pasted exactly. After each step there is a
-**Check** — if the check does not match, stop there and fix it before going on.
+The server is one Docker Compose stack (`backend/docker-compose.yml`) on one machine:
 
-Total time: about 60–90 minutes, most of it waiting.
-
-**What you need before you start**
-
-- A credit or debit card (Oracle asks for one to verify identity — the Always
-  Free resources are not charged).
-- A domain name, e.g. `myreferral.com`. About ₹800/year from any registrar.
-- The Telegram app, on your phone or desktop.
-
----
-
-## Part 1 — Get a free server from Oracle
-
-### 1.1 Create the account
-
-1. Go to <https://signup.oracle.com/>.
-2. Choose your country and fill in your details.
-3. For **Home Region**, choose **India South (Hyderabad)** or **India West
-   (Mumbai)**. Pick carefully — this cannot be changed later.
-4. Verify your card. You will see a temporary hold of about ₹85; it is
-   refunded.
-5. When it asks, stay on the **Always Free** account.
-
-### 1.2 Create the server
-
-1. Sign in to <https://cloud.oracle.com/>.
-2. In the top-left menu (☰) choose **Compute → Instances**.
-3. Click **Create instance**.
-4. **Name**: `referral-server`
-5. Under **Image and shape**, click **Edit**:
-   - Click **Change image**, pick **Canonical Ubuntu**, choose version
-     **24.04**, click **Select image**.
-   - Click **Change shape**, choose the **Ampere** tab, pick
-     **VM.Standard.A1.Flex**.
-   - Set **OCPUs** to `2` and **Memory** to `12` GB. Click **Select shape**.
-6. Under **Add SSH keys**, choose **Generate a key pair for me** and click
-   **Save private key**. A file downloads — usually to your Downloads folder.
-   **Keep this file. Without it you cannot get into your server.**
-7. Click **Create**. Wait about two minutes until the box turns green and says
-   **RUNNING**.
-8. Copy the **Public IP address** shown on the page. It looks like
-   `152.67.xxx.xxx`. Write it down.
-
-> **"Out of capacity" error?** Oracle's free Ampere machines are popular. Try
-> a different Availability Domain in the dropdown, or try again in a few
-> hours. It is not something you did wrong.
-
-### 1.3 Open the network ports
-
-Oracle blocks web traffic by default. This step is easy to forget and is the
-single most common reason the site does not load later.
-
-1. On your instance page, under **Primary VNIC**, click the **Subnet** link.
-2. Click the **Security List** (usually "Default Security List for ...").
-3. Click **Add Ingress Rules** and add these two, one at a time:
-
-| Field | First rule | Second rule |
-|---|---|---|
-| Source CIDR | `0.0.0.0/0` | `0.0.0.0/0` |
-| IP Protocol | TCP | TCP |
-| Destination Port Range | `80` | `443` |
-
-4. Click **Add Ingress Rules** to save.
-
-**Check:** the Security List now shows rules for ports 22, 80 and 443.
-
----
-
-## Part 2 — Point your domain at the server
-
-1. Sign in wherever you bought your domain (GoDaddy, Namecheap, Hostinger…).
-2. Find **DNS** / **Manage DNS** / **DNS Records**.
-3. Add a record:
-   - **Type**: `A`
-   - **Name** / **Host**: `@`
-   - **Value** / **Points to**: your server's public IP from step 1.2
-   - **TTL**: leave as is
-4. Save.
-
-**Check:** wait 10 minutes, then on your own computer open a terminal and run
-`ping myreferral.com` (use your domain). It should reply with your server's
-IP. If it still shows the old address, wait longer — DNS can take up to an
-hour.
-
----
-
-## Part 3 — Connect to the server
-
-### On Windows
-
-1. Press `Win + R`, type `cmd`, press Enter.
-2. Type this, replacing the path with where your key file downloaded and the
-   IP with yours:
-
-```
-ssh -i C:\Users\YourName\Downloads\ssh-key-2026-08-04.key ubuntu@152.67.xxx.xxx
-```
-
-If it complains the key is "unprotected", run this first, then try again:
-
-```
-icacls C:\Users\YourName\Downloads\ssh-key-2026-08-04.key /inheritance:r /grant:r "%USERNAME%":R
-```
-
-### On Mac or Linux
-
-1. Open **Terminal**.
-2. Lock down the key file, then connect:
-
-```bash
-chmod 600 ~/Downloads/ssh-key-2026-08-04.key
-ssh -i ~/Downloads/ssh-key-2026-08-04.key ubuntu@152.67.xxx.xxx
-```
-
-The first time it asks "Are you sure you want to continue connecting?" — type
-`yes` and press Enter.
-
-**Check:** your prompt now ends with something like `ubuntu@referral-server:~$`.
-You are on the server. Everything from here is typed into this window.
-
----
-
-## Part 4 — Install the software
-
-Copy and paste these three lines, one at a time, pressing Enter after each and
-waiting for it to finish:
-
-```bash
-sudo apt update && sudo apt install -y git
-git clone https://github.com/tezerports-dot/EARNMONEY.git
-cd EARNMONEY && sudo bash deploy/install.sh
-```
-
-The last one takes 3–5 minutes and prints a lot of text. At the end it prints
-a block starting with **"Done. Next:"** which includes a line like:
-
-```
-Your generated admin token is:
-  8f3a9c2e1b7d4a5f6e8c9d0a1b2c3d4e5f6a7b8c9d0e1f2a
-```
-
-**Copy that long string into a notes app now.** It is the password to your
-control panel. It is shown once here; you can always read it again later with
-`sudo grep ADMIN_TOKEN /opt/referral/.env`.
-
-**Check:** you see "Done. Next:" with no red error text above it.
-
----
-
-## Part 5 — Create your Telegram bots
-
-Do this part on your phone or Telegram desktop, not on the server.
-
-### 5.1 Find your own Telegram ID
-
-1. In Telegram, search for **@userinfobot** and open it.
-2. Press **Start**.
-3. It replies with `Id: 123456789`. **Write that number down.**
-
-### 5.2 Create four bots
-
-1. In Telegram, search for **@BotFather** and open it.
-2. Send `/newbot`.
-3. It asks for a name — type anything, e.g. `My Referral Bot`.
-4. It asks for a username — must end in `bot`, e.g. `myreferral_main_bot`.
-5. It replies with a token that looks like
-   `7891234567:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw`. **Copy it to your notes.**
-
-Repeat `/newbot` three more times so you have four bots. Suggested names:
-
-| Purpose | Suggested username | What it does |
-|---|---|---|
-| Main | `myreferral_main_bot` | Signs people up, gives out referral links, handles payouts |
-| Moderation | `myreferral_mod_bot` | Keeps the groups clean, enforces bans |
-| Collector | `myreferral_bank_bot` | Asks members for bank details daily |
-| Broadcast | `myreferral_news_bot` | You message it once, it posts everywhere |
-
-### 5.3 Let the moderation bot read messages
-
-By default Telegram hides group messages from bots. The moderation bot needs
-to see them.
-
-1. In BotFather, send `/mybots`.
-2. Choose your **moderation** bot.
-3. Tap **Bot Settings → Group Privacy → Turn off**.
-
-**Check:** it says "Privacy mode is disabled for ...".
-
----
-
-## Part 6 — Tell the server about your bots
-
-Back in the server window:
-
-```bash
-sudo nano /opt/referral/.env
-```
-
-A text editor opens. Use the arrow keys — the mouse does not work here.
-
-Change these lines (leave the rest alone):
-
-- `ADMIN_IDS=` → put your Telegram ID from step 5.1, e.g. `ADMIN_IDS=123456789`
-- `PUBLIC_BASE_URL=` → your domain with `https://`, e.g.
-  `PUBLIC_BASE_URL=https://myreferral.com`
-- `BOT_TOKENS=` → all four tokens, in this exact shape, all on **one line**,
-  separated by commas with no spaces:
-
-```
-BOT_TOKENS=main:7891234567:AAHxxx,moderation:7891234568:AAHyyy,collector:7891234569:AAHzzz,broadcast:7891234570:AAHwww
-```
-
-To save: press `Ctrl+O`, then Enter, then `Ctrl+X`.
-
-Now tell nginx your domain:
-
-```bash
-sudo sed -i 's/referral.example.com/myreferral.com/' /etc/nginx/sites-available/referral
-sudo nginx -t && sudo systemctl reload nginx
-```
-
-(Replace `myreferral.com` with your real domain.)
-
-**Check:** `nginx -t` says `syntax is ok` and `test is successful`.
-
----
-
-## Part 7 — Start it
-
-```bash
-sudo systemctl start referral
-sudo systemctl status referral
-```
-
-**Check:** you see `Active: active (running)` in green. Press `q` to exit that
-view.
-
-To watch what it is doing:
-
-```bash
-sudo journalctl -u referral -f
-```
-
-You should see lines like `started bot 1 (@myreferral_main_bot) as main`.
-Press `Ctrl+C` to stop watching.
-
-**Check:** open `http://myreferral.com` in a browser. You should see the
-member lookup page.
-
-> **Nothing loads?** Ninety percent of the time it is Part 1.3 — go back and
-> confirm ports 80 and 443 are open in the Oracle Security List.
-
----
-
-## Part 8 — Turn on HTTPS
-
-Free, and takes a minute. Do not skip it: without it your admin password
-travels in the clear.
-
-```bash
-sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d myreferral.com
-```
-
-- Enter your email when asked.
-- Type `Y` to agree to the terms.
-- Choose `2` (redirect all traffic to HTTPS) if it offers.
-
-**Check:** `https://myreferral.com` loads with a padlock in the address bar.
-
----
-
-## Part 9 — Create your groups and channels
-
-In Telegram:
-
-1. Create a **group**. Name it whatever you like.
-2. Create a **channel**. Name it whatever you like.
-3. Add **all four bots** to the group:
-   - Open the group → tap its name → **Administrators** → **Add Admin**
-   - Search each bot, select it, and make sure these switches are **on**:
-     **Delete messages**, **Ban users**, **Invite users via link**
-   - Tap the ✓ to save. Do this for each of the four bots.
-4. Do exactly the same for the **channel**.
-
-**Check:** each bot appears in the Administrators list of both the group and
-the channel.
-
----
-
-## Part 10 — Finish in the control panel
-
-1. Open `https://myreferral.com/admin` in a browser.
-2. Paste the admin token from Part 4. Click **Log in**.
-3. Go to **Bots**. All four should be listed as **running** with green
-   badges. If one shows an error, the token was mistyped — remove it and add
-   it again with the correct token.
-4. Go to **Chats & pairs**. Your group and channel should already be listed —
-   they register themselves when a bot is made an administrator. If not, add
-   them by ID.
-5. Under **Create a pair**, pick your group and your channel and click
-   **Create pair**.
-6. On the pair that appears, click **Make default** and **Make primary**.
-
-**Check:** the pair shows both a `default` and a `primary` badge.
-
----
-
-## Part 11 — Test it yourself
-
-1. Open your main bot in Telegram and press **Start**.
-2. Tap the single button. It should share your contact and immediately reply
-   with your ID (`UID-XXXXXX`), your referral link, and two buttons to join
-   the group and the channel.
-3. Tap both buttons. You should be let in automatically.
-4. Send `/status` to the bot. It should say you are in your group, in your
-   channel, and have interacted this month.
-5. Open `https://myreferral.com` and search for your `UID-XXXXXX`.
-
-**Check:** your public page loads and shows you as verified and active.
-
-Now send your referral link to a friend and have them do the same. After they
-finish, your `/earnings` should show ₹5 for them.
-
----
-
-## You are live
-
-Your system is running. What to do next:
-
-- **Read [MANAGEMENT.md](MANAGEMENT.md)** — how to broadcast, run the monthly
-  payout, and handle problems.
-- **Set your payout rates** at **Admin → Settings** if ₹5 + ₹5 is not what you
-  want.
-- **Set up backups** — see MANAGEMENT.md. Do this before you have real
-  members, not after.
-
----
-
-## If something goes wrong
-
-| Symptom | Fix |
+| Service | What it does |
 |---|---|
-| Website does not load at all | Ports 80/443 not open in the Oracle Security List (Part 1.3). |
-| "502 Bad Gateway" | The app is not running: `sudo systemctl restart referral`, then `sudo journalctl -u referral -n 50`. |
-| Bots show as stopped | A token is wrong. Compare against BotFather, remove the bot in the panel and add it again. |
-| Bot does not reply in Telegram | Check it is running in the panel; check `sudo journalctl -u referral -f` while you message it. |
-| "Bot is not an administrator" warning | Re-add the bot as an admin **with the "invite users" right**. |
-| Moderation bot ignores group messages | Group Privacy is still on — see step 5.3. |
-| New members get no join links | No pair is configured, or it is not marked default (Part 10, steps 5–6). |
-| Lost the admin password | `sudo grep ADMIN_TOKEN /opt/referral/.env` |
-| Locked out after wrong passwords | Wait 5 minutes; the lockout clears itself. |
+| `caddy` | HTTPS on ports 80 and 443, with automatic certificates. Forwards everything to `api`. |
+| `api` | The FastAPI server: the app's API, the admin panel (`/admin`), referral link pages (`/r/CODE`), the APK download redirect and Telegram webhooks. |
+| `worker` | Background jobs: daily referral snapshots, unlocking rewards on the payout date, expiring stale signups, re-checking unhealthy bots. |
+| `migrate` | Runs database migrations, then exits. `api` and `worker` wait for it. |
+| `postgres` | PostgreSQL 16, the source of truth for all data and money. |
+| `redis` | Rate limits, CAPTCHA answers and short-lived Telegram state. Nothing in it needs a backup. |
 
-**Useful commands**
+Only Caddy is reachable from the internet. PostgreSQL and Redis have no published ports.
+
+## 1. What you need
+
+- **A server.** Ubuntu 24.04 with 2 vCPU, 4 GB RAM and 80 GB SSD is enough to launch. Pick a region in or near India (Mumbai or Bangalore) for low latency. [PERFORMANCE.md](PERFORMANCE.md) says when to grow.
+- **A domain** with its DNS on Cloudflare (the free plan is enough). One domain serves everything: the API, referral links, the APK download and the Android App Links file. This guide calls it `futurefashion.example`.
+- **Telegram bots and channels** (see [ADMIN.md](ADMIN.md)), created with @BotFather.
+
+## 2. DNS
+
+1. In Cloudflare, add an `A` record for the domain pointing at the server's IP address. Set it to **DNS only** (grey cloud) for now, so Caddy can get its first certificate directly.
+2. Once `https://futurefashion.example/healthz` works (step 4), switch the record to **Proxied** (orange cloud) and set **SSL/TLS → Overview** to **Full (strict)**.
+
+Behind the Cloudflare proxy, every request arrives from a Cloudflare address. `backend/Caddyfile` trusts the visitor address Cloudflare sends (`CF-Connecting-IP`) only from Cloudflare's published IP ranges, and passes it to the API. Without that, all users would share the per-IP limits on login and signup. Cloudflare rarely changes its ranges, but compare the list in the Caddyfile with <https://www.cloudflare.com/ips/> when you deploy.
+
+## 3. Install and configure
 
 ```bash
-sudo systemctl restart referral          # restart everything
-sudo systemctl stop referral             # stop everything
-sudo journalctl -u referral -f           # watch the live log
-sudo journalctl -u referral -n 100       # last 100 log lines
-sudo nano /opt/referral/.env             # edit settings (restart after)
-df -h                                    # check disk space
-free -h                                  # check memory
+# Docker, from Docker's own repository
+curl -fsSL https://get.docker.com | sh
+
+# Firewall: SSH and web only
+ufw allow OpenSSH && ufw allow 80 && ufw allow 443 && ufw enable
+
+# The code
+git clone https://github.com/tezerports-dot/EARNMONEY.git /opt/futurefashion
+cd /opt/futurefashion/backend
+cp .env.example .env
+chmod 600 .env
 ```
 
-After editing `.env` you must run `sudo systemctl restart referral` for the
-change to take effect. Settings changed in the **admin panel** apply
-immediately and need no restart.
+Edit `.env`:
+
+1. Set `DOMAIN` and `FF_PUBLIC_BASE_URL` to your domain (`https://` for the second).
+2. Choose two long random database passwords: one for `POSTGRES_PASSWORD` (also put it in the owner's `FF_DATABASE_URL`), and one for `APP_DB_PASSWORD`. The app connects as a separate DML-only role; the owner is used only for migrations (see [SECURITY.md](../SECURITY.md)).
+3. Generate two **different** keys, one for `FF_DATA_ENCRYPTION_KEY` and one for `FF_HMAC_KEY`:
+
+   ```bash
+   python3 -c "import base64,secrets;print(base64.b64encode(secrets.token_bytes(32)).decode())"
+   ```
+
+4. After you create the app signing key ([RELEASE.md](RELEASE.md)), put its SHA-256 fingerprint in `FF_ANDROID_CERT_SHA256`, for example `["AB:CD:…"]`.
+
+**Back up `.env` somewhere safe outside the server** (a password manager). Without `FF_DATA_ENCRYPTION_KEY`, stored bank account numbers, bot tokens and admin 2FA secrets can't be decrypted. Without `FF_HMAC_KEY`, open verification links stop working and duplicate bank account detection resets.
+
+## 4. Start
+
+```bash
+docker compose up -d --build
+docker compose ps                       # migrate should show "exited (0)"
+curl https://futurefashion.example/healthz   # {"ok":true}
+curl https://futurefashion.example/readyz    # {"ok":true}: database reachable
+```
+
+Then switch Cloudflare to Proxied (step 2).
+
+## 5. First admin
+
+```bash
+docker compose run --rm api python -m app.cli create-admin owner
+```
+
+It asks for a password (12+ characters) and prints an `otpauth://` link. Add that to an authenticator app now (Google Authenticator, Authy, 1Password…); it isn't shown again. Sign in at `https://futurefashion.example/admin`, then follow the first-time checklist in [ADMIN.md](ADMIN.md). Run the same command with another name to add more admins.
+
+## 6. Backups
+
+PostgreSQL holds everything that matters. Take a nightly dump and copy it off the server, for example to Cloudflare R2 with `rclone`:
+
+```bash
+# /etc/cron.d/futurefashion-backup
+0 2 * * * root cd /opt/futurefashion/backend && docker compose exec -T postgres pg_dump -U futurefashion -Fc futurefashion > /var/backups/ff-$(date +\%F).dump && find /var/backups -name 'ff-*.dump' -mtime +14 -delete
+```
+
+Test a restore before you need one:
+
+```bash
+docker compose exec -T postgres pg_restore -U futurefashion -d futurefashion --clean --if-exists < /var/backups/ff-2026-12-30.dump
+```
+
+Dumps contain encrypted bank numbers and hashed passwords. They can only be decrypted with the keys in `.env`, so keep the two in different places.
+
+## 7. Updates
+
+```bash
+cd /opt/futurefashion && git pull
+cd backend && docker compose up -d --build
+```
+
+`migrate` applies new migrations before `api` and `worker` restart. For risky changes, switch on maintenance mode in the admin panel first. The app shows your message, with a Retry button, until you switch it off.
+
+## 8. Keeping an eye on it
+
+- **Logs** are JSON lines on standard output: `docker compose logs -f api worker`. They never contain passwords, tokens, OTPs or full bank numbers.
+- **Health:** `/healthz` (process up) and `/readyz` (database reachable). Point an uptime monitor at `/readyz`.
+- **Admin dashboard:** sign-ups, pool balance, withdrawals, open fraud flags, and the job queue with the age of its oldest ready job.
+- **Ledger check,** daily from cron. It exits with code 2 if balances and entries ever disagree:
+
+  ```bash
+  docker compose exec -T api python -m app.cli check-ledger
+  ```
+
+## Configuration reference
+
+Campaign dates, rewards, bots, channels, maintenance mode, ads and legal details are changed in the admin panel without a restart. These deployment settings live in `.env`:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `DOMAIN` | — | Domain Caddy serves and gets a certificate for (compose only). |
+| `POSTGRES_PASSWORD` | — | Owner database password (compose only). Must match the owner's `FF_DATABASE_URL`. |
+| `APP_DB_USER` / `APP_DB_PASSWORD` | `futurefashion_app` / — | The DML-only role the API and worker connect as. The migrate step creates and refreshes it. |
+| `FF_ENV` | `dev` | `dev`, `test`, `staging` or `production`. Staging and production refuse the built-in development keys and plain `http`. |
+| `FF_PUBLIC_BASE_URL` | `http://localhost:8000` | Public address of this server. Used for referral links, Telegram webhooks and the APK download. |
+| `FF_DATABASE_URL` | local `ff_dev` | PostgreSQL connection (`postgresql+asyncpg://…`). In compose the owner uses this for migrations; the API and worker override it with the app role. |
+| `FF_DATABASE_POOL_SIZE` / `FF_DATABASE_MAX_OVERFLOW` | `10` / `20` | Database connections per process. |
+| `FF_REDIS_URL` | `redis://127.0.0.1:6379/0` | Redis connection. |
+| `FF_DATA_ENCRYPTION_KEY` | dev key | 32-byte base64 key. AES-256-GCM for bank numbers, bot tokens and admin 2FA secrets. |
+| `FF_HMAC_KEY` | dev key | 32-byte base64 key, different from the one above. Fingerprints and verification link tokens. |
+| `FF_ACCESS_TOKEN_MINUTES` | `15` | App access token lifetime. |
+| `FF_REFRESH_TOKEN_DAYS` | `30` | How long a login lasts without use. |
+| `FF_PENDING_ACCOUNT_HOURS` | `24` | Unverified signups are removed after this, freeing the number. |
+| `FF_ADMIN_SESSION_HOURS` | `8` | Admin panel session lifetime. |
+| `FF_ARGON2_TIME_COST` / `FF_ARGON2_MEMORY_KIB` / `FF_ARGON2_PARALLELISM` | `3` / `65536` / `2` | Password hashing cost. |
+| `FF_TRUST_PROXY_HEADERS` | `false` | Read the client IP from `X-Forwarded-For`. Compose sets it to `true` because Caddy is in front. |
+| `FF_TELEGRAM_API_BASE` | `https://api.telegram.org` | Telegram Bot API address. |
+| `FF_ANDROID_PACKAGE_NAME` | `com.futurefashion.app` | App id, for Android App Links. |
+| `FF_ANDROID_CERT_SHA256` | `[]` | SHA-256 fingerprints of the release signing certificate (JSON list). |
+| `FF_LOG_LEVEL` | `INFO` | Log level. |
+
+## Local development
+
+```bash
+# PostgreSQL and Redis, any way you like, for example:
+docker run -d --name ff-pg -e POSTGRES_PASSWORD=dev -p 5432:5432 postgres:16
+docker run -d --name ff-redis -p 6379:6379 redis:7
+docker exec ff-pg createdb -U postgres ff_dev
+docker exec ff-pg createdb -U postgres ff_test
+
+cd backend
+python3.12 -m venv .venv
+.venv/bin/pip install -e ".[test]" "ruff==0.16.8"
+export FF_DATABASE_URL=postgresql+asyncpg://postgres:dev@127.0.0.1:5432/ff_dev
+.venv/bin/alembic upgrade head
+.venv/bin/uvicorn app.main:app --reload       # API on http://localhost:8000
+.venv/bin/python -m app.cli worker            # background jobs, in another terminal
+```
+
+The Android emulator reaches your computer at `10.0.2.2`, which is what `mobile/config/dev.json` uses. Telegram can only deliver webhooks to a public HTTPS address, so to try verification locally, expose port 8000 through a tunnel and set `FF_PUBLIC_BASE_URL` to it.
+
+Tests use their own database, which they wipe:
+
+```bash
+FF_TEST_DATABASE_URL=postgresql+asyncpg://postgres:dev@127.0.0.1:5432/ff_test .venv/bin/python -m pytest
+.venv/bin/ruff check . && .venv/bin/ruff format --check .
+```

@@ -1,0 +1,5 @@
+{
+  "ENV": "staging",
+  "API_BASE_URL": "https://staging.futurefashion.example",
+  "WEB_HOST": "staging.futurefashion.example"
+}
