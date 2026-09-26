@@ -52,10 +52,7 @@ class _PostCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final details = [post.location, post.employmentType]
-        .whereType<String>()
-        .where((text) => text.isNotEmpty)
-        .join(' • ');
+    final details = [post.location, post.employmentType].whereType<String>().where((text) => text.isNotEmpty).join(' • ');
     final applyUri = post.applyUrl == null
         ? (post.applyEmail == null ? null : Uri.parse('mailto:${post.applyEmail}'))
         : Uri.parse(post.applyUrl!);

@@ -20,8 +20,7 @@ class LaunchGateScreen extends ConsumerStatefulWidget {
   ConsumerState<LaunchGateScreen> createState() => _LaunchGateScreenState();
 }
 
-class _LaunchGateScreenState extends ConsumerState<LaunchGateScreen>
-    with WidgetsBindingObserver {
+class _LaunchGateScreenState extends ConsumerState<LaunchGateScreen> with WidgetsBindingObserver {
   LaunchChallenge? _challenge;
   Object? _error;
   bool _loading = true;
@@ -88,8 +87,7 @@ class _LaunchGateScreenState extends ConsumerState<LaunchGateScreen>
     if (_error != null) {
       return AppScreen(children: [ErrorView(error: _error!, onRetry: _load)]);
     }
-    final companyName =
-        ref.watch(configProvider).valueOrNull?.config.companyName ?? 'Telegram';
+    final companyName = ref.watch(configProvider).valueOrNull?.config.companyName ?? 'Telegram';
     return AppScreen(
       children: [
         const SizedBox(height: Space.xxl),
