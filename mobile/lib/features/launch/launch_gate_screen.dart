@@ -85,7 +85,9 @@ class _LaunchGateScreenState extends ConsumerState<LaunchGateScreen> with Widget
   Widget build(BuildContext context) {
     if (_loading) return const AppScreen(children: [LoadingView(blocks: 1)]);
     if (_error != null) {
-      return AppScreen(children: [ErrorView(error: _error!, onRetry: _load)]);
+      return AppScreen(
+        children: [ErrorView(error: _error!, onRetry: _load)],
+      );
     }
     final companyName = ref.watch(configProvider).valueOrNull?.config.companyName ?? 'Telegram';
     return AppScreen(
@@ -98,16 +100,9 @@ class _LaunchGateScreenState extends ConsumerState<LaunchGateScreen> with Widget
             children: [
               Text('Open $companyName', style: AppType.headline),
               const SizedBox(height: Space.m),
-              const Text(
-                'Continue from your verified Telegram account to unlock the app.',
-                style: AppType.body,
-              ),
+              const Text('Continue from your verified Telegram account to unlock the app.', style: AppType.body),
               const SizedBox(height: Space.xl),
-              PrimaryButton(
-                label: 'Continue in Telegram',
-                icon: Icons.send_rounded,
-                onPressed: _openTelegram,
-              ),
+              PrimaryButton(label: 'Continue in Telegram', icon: Icons.send_rounded, onPressed: _openTelegram),
               const SizedBox(height: Space.m),
               SecondaryButton(label: 'I’ve done it — check again', onPressed: _check),
             ],
